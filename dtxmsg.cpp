@@ -449,9 +449,9 @@ static int idaapi init(void)
   ea_t ea1 = get_name_ea(BADADDR, "-[DTXMessageParser parseMessageWithExceptionHandler:]");
   ea_t ea2 = get_name_ea(BADADDR, "-[DTXMessageParser waitForMoreData:incrementalBuffer:]");
 
-  if ( ea1 == BADADDR || ea2 == BADADDR )
+  if ( !inf.is_64bit() || ea1 == BADADDR || ea2 == BADADDR )
   {
-    dtxmsg_deb("input file does not look like the DTXConnectionServices library, skipping\n");
+    dtxmsg_deb("input file does not look like the 64-bit DTXConnectionServices library, skipping\n");
     return PLUGIN_SKIP;
   }
 
