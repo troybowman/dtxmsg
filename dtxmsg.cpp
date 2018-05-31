@@ -350,45 +350,48 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
           break;
         }
 
+        mba_ranges_t mbr(pfn);
         hexrays_failure_t hf;
-        cfuncptr_t cfunc = decompile(pfn, &hf);
-        if ( cfunc == NULL )
+        mbl_array_t *mba = gen_microcode(
+                mbr,
+                &hf,
+                NULL,
+                DECOMP_NO_WAIT,
+                MMAT_GLBOPT1);
+
+        if ( mba == NULL )
         {
-          dtxmsg_deb("Error: decompilation failed. code=%d, addr=%a, err=%s\n", hf.code, hf.errea, hf.str.c_str());
-          break;
+          dtxmsg_deb("microcode failure at %a: %s\n", hf.errea, hf.desc().c_str());
+          return false;
         }
 
         // add breakpoints after calls to -[DTXMessageParser waitForMoreData:incrementalBuffer:].
         // this function will return a pointer to the raw DTXMessage data.
-        struct ida_local bpt_finder_t : public ctree_visitor_t
+        struct ida_local bpt_finder_t : public minsn_visitor_t
         {
-          netnode &node;
-          bpt_finder_t(netnode &_node) : ctree_visitor_t(CV_FAST), node(_node) {}
-
-          virtual int idaapi visit_expr(cexpr_t *e)
+          netnode node;
+          bpt_finder_t(netnode _node) : node(_node) {}
+          virtual int idaapi visit_minsn(void)
           {
-            if ( e->op == cot_call )
+            if ( curins->opcode == m_call )
             {
-              ea_t callee = e->x->obj_ea;
-              if ( callee == node.altval(DTXMSG_ALT_WAIT) // objc plugin might have set this
-                || callee == get_name_ea(BADADDR, "_objc_msgSend") )
+              const mfuncinfo_t *fi = curins->d.f;
+              if ( fi->args.size() == 4 && fi->callee == get_name_ea(BADADDR, "_objc_msgSend") )
               {
-                const carglist_t &args = *e->a;
-
-                if ( args.size() == 4 && args[1].op == cot_obj )
+                const mfuncarg_t &selarg = fi->args[1];
+                if ( selarg.t == mop_a || selarg.a->t == mop_v )
                 {
-                  ea_t selea = args[1].obj_ea;
                   qstring sel;
-
+                  ea_t selea = selarg.a->g;
                   if ( is_strlit(get_flags(selea))
-                    && get_strlit_contents(&sel, selea, -1, STRTYPE_C)
+                    && get_strlit_contents(&sel, selea, -1, STRTYPE_C) > 0
                     && sel == "waitForMoreData:incrementalBuffer:"
                     // we ignore calls with a constant for the length argument, since they are likely just
                     // reading the header block. we are only interested in calls that will ultimately return
                     // the full serialized DTXMessage payload.
-                    && args[2].op != cot_num )
+                    && fi->args[2].t != mop_n )
                   {
-                    ea_t bpt = get_item_end(e->ea);
+                    ea_t bpt = get_item_end(curins->ea);
                     add_bpt(bpt, 1, BPT_DEFAULT);
                     node.altset_ea(bpt, 1, DTXMSG_ALT_BPTS);
                     dtxmsg_deb("magic bpt: %a\n", bpt);
@@ -401,7 +404,12 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
         };
 
         bpt_finder_t bf(node);
-        bf.apply_to_exprs(&cfunc->body, NULL);
+        mba->for_all_insns(bf);
+
+        delete mba;
+
+        if ( node.altfirst(DTXMSG_ALT_BPTS) == BADNODE )
+          warning(DTXMSG_DEB_PFX "failed to detect any critical breakpoints!");
       }
       break;
 
@@ -449,7 +457,7 @@ static int idaapi init(void)
   ea_t ea1 = get_name_ea(BADADDR, "-[DTXMessageParser parseMessageWithExceptionHandler:]");
   ea_t ea2 = get_name_ea(BADADDR, "-[DTXMessageParser waitForMoreData:incrementalBuffer:]");
 
-  if ( !inf.is_64bit() || ea1 == BADADDR || ea2 == BADADDR )
+  if ( ea1 == BADADDR || ea2 == BADADDR || !inf.is_64bit() )
   {
     dtxmsg_deb("input file does not look like the 64-bit DTXConnectionServices library, skipping\n");
     return PLUGIN_SKIP;
