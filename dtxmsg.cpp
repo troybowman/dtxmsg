@@ -11,15 +11,14 @@
 #include <hexrays.hpp>
 #include "dtxmsg.h"
 
-static FILE *logfp = NULL;
+static FILE *headers_fp = NULL;
 static char logdir[QMAXPATH];
+static bool verbose = false;
 hexdsp_t *hexdsp = NULL;
 
 //-----------------------------------------------------------------------------
-// this is the crux of the plugin. here we try to deserialize a packet of data
-// sent between Xcode and the iOS instruments server and print it to a file
-// in plain text.
-static bool parse_payload_component(
+// try to parse a serialized object and print it to a file in plain text
+static bool deserialize_component(
         const char *label,
         uint32 identifier,
         FILE *payload_fp,
@@ -79,18 +78,151 @@ static bool parse_payload_component(
     else
       obj = unarchive(bytes.begin(), length);
 
-    if ( obj != NULL )
-    {
-      qfprintf(txtfp, "%s\n", get_description(obj).c_str());
-      CFRelease(obj);
-    }
-    else
+    if ( obj == NULL )
     {
       dtxmsg_deb("Error: failed to deserialize %s: %s\n", binpath, errbuf.c_str());
+      return false;
     }
+
+    qfprintf(txtfp, "%s\n", get_description(obj).c_str());
+    CFRelease(obj);
   }
 
   dtxmsg_deb("%s: %s\n", label, txtpath);
+  return true;
+}
+
+//-----------------------------------------------------------------------------
+static bool deserialize_payload(const char *path, uint32 id)
+{
+  FILE *payload_fp = qfopen(path, "rb");
+  if ( payload_fp == NULL )
+  {
+    dtxmsg_deb("Error: failed to open payload file %s for reading: %s\n", path, winerr(errno));
+    return false;
+  }
+  file_janitor_t pj(payload_fp);
+
+  DTXMessagePayloadHeader pheader;
+  if ( qfread(payload_fp, &pheader, sizeof(pheader)) != sizeof(pheader) )
+  {
+    dtxmsg_deb("Error: failed to read payload header from %s: %s\n", path, winerr(errno));
+    return false;
+  }
+
+  uint8 message_type = pheader.flags & 0xFF;
+  uint8 compression_type = pheader.flags & 0xFF000 >> 12;
+  uint32 algorithm = 0;
+
+  if ( message_type == 6 )
+  {
+    dtxmsg_deb("Error: message payload is a serialized dictionary. we only know how to deserialize arrays.\n");
+    return false;
+  }
+
+  // it seems Xcode does not normally use compression when sending messages to the instruments server.
+  // for now we will assume that it doesn't, and throw an error if compression is detected.
+  if ( message_type == 7 && compression_type > 3 )
+  {
+    dtxmsg_deb("Error: message is compressed (compression_type=%x). We must uncompress it before we read it!\n", compression_type);
+    return false;
+  }
+
+  asize_t auxlen = pheader.auxiliaryLength;
+  asize_t objlen = pheader.totalLength - auxlen;
+
+  // the payload is broken up into two components:
+  // 1. the payload object (a single archived NSObject)
+  // 2. auxiliary data (a serialized array of archived NSObjects)
+  return deserialize_component("auxiliary", id, payload_fp, sizeof(pheader),          auxlen, true)
+      && deserialize_component("object",    id, payload_fp, sizeof(pheader) + auxlen, objlen, false);
+}
+
+//-----------------------------------------------------------------------------
+static bool format_header(qstring *out, ea_t ea, const tinfo_t &tif)
+{
+  format_data_info_t fdi;
+  fdi.ptvf = PTV_SPACE|PTV_QUEST|PTV_CSTR|PTV_DEBUG|PTV_DEREF;
+  fdi.radix = 16;
+  fdi.margin = 0;
+  fdi.max_length = MAXSTR;
+
+  argloc_t loc;
+  loc.set_ea(ea);
+
+  idc_value_t idcv;
+  idcv.vtype = VT_PVOID;
+  idcv.pvoid = &loc;
+
+  qstrvec_t outvec;
+  if ( !format_cdata(&outvec, idcv, &tif, NULL, &fdi) )
+    return false;
+
+  *out = outvec[0];
+  return true;
+}
+
+//-----------------------------------------------------------------------------
+static bool handle_message_fragment(ea_t buf, const DTXMessageHeader &mheader)
+{
+  ea_t fptr = buf + sizeof(mheader);
+  ea_t flen = mheader.length;
+
+  // the first message fragment contains the payload header
+  if ( mheader.fragmentId <= 1 )
+  {
+    tinfo_t tif;
+    if ( !tif.get_named_type(NULL, "DTXMessagePayloadHeader") )
+    {
+      dtxmsg_deb("Error: failed to retrieve tinfo for DTXMessagePayloadHeader\n");
+      return false;
+    }
+
+    qstring hstr;
+    if ( !format_header(&hstr, fptr, tif) )
+    {
+      dtxmsg_deb("Error: failed to format DTXMessagePayloadHeader at %a\n", fptr);
+      return false;
+    }
+
+    qfprintf(headers_fp, "\t- DTXMessagePayloadHeader: %s\n", hstr.c_str());
+    qflush(headers_fp);
+  }
+
+  bytevec_t fbytes;
+  fbytes.resize(flen);
+  if ( flen != 0 && read_dbg_memory(fptr, fbytes.begin(), flen) != flen )
+  {
+    dtxmsg_deb("Error: failed to read message fragment at %a, size = %a\n", fptr, flen);
+    return false;
+  }
+
+  char path[MAXSTR];
+
+  qstring fname;
+  fname.sprnt("payload_%d.bin", mheader.identifier);
+  qmakepath(path, sizeof(path), logdir, fname.c_str(), NULL);
+
+  // append this fragment to the incremental payload file
+  FILE *payload_fp = qfopen(path, "a");
+  if ( payload_fp == NULL )
+  {
+    dtxmsg_deb("Error: failed to open %s: %s\n", path, winerr(errno));
+    return false;
+  }
+
+  qfwrite(payload_fp, fbytes.begin(), flen);
+  qfclose(payload_fp);
+
+  dtxmsg_deb("payload: %s\n", path);
+
+  // after writing the last fragment, deserialize the complete payload
+  if ( mheader.fragmentId == mheader.fragmentCount - 1 )
+  {
+    if ( !deserialize_payload(path, mheader.identifier) )
+      return false;
+  }
+
   return true;
 }
 
@@ -114,23 +246,10 @@ static bool handle_magic_bpt(void)
     return false;
   }
 
-  format_data_info_t fdi;
-  fdi.ptvf = PTV_SPACE|PTV_QUEST|PTV_CSTR|PTV_DEBUG|PTV_DEREF;
-  fdi.radix = 16;
-  fdi.margin = 0;
-  fdi.max_length = MAXSTR;
-
-  argloc_t loc;
-  loc.set_ea(buf);
-
-  idc_value_t idcv;
-  idcv.vtype = VT_PVOID;
-  idcv.pvoid = &loc;
-
-  qstrvec_t outvec;
-  if ( !format_cdata(&outvec, idcv, &tif, NULL, &fdi) )
+  qstring hstr;
+  if ( !format_header(&hstr, buf, tif) )
   {
-    dtxmsg_deb("Error: format_cdata() failed for data at %a\n", buf);
+    dtxmsg_deb("Error: failed to format DTXMessageHeader at %a\n", buf);
     return false;
   }
 
@@ -141,8 +260,8 @@ static bool handle_magic_bpt(void)
     return false;
   }
 
-  qfprintf(logfp, "%d.%d: DTXMessageHeader: %s\n", mheader.identifier, mheader.fragmentId, outvec[0].c_str());
-  qflush(logfp);
+  qfprintf(headers_fp, "%d.%d: DTXMessageHeader: %s\n", mheader.identifier, mheader.fragmentId, hstr.c_str());
+  qflush(headers_fp);
 
   asize_t size = sizeof(mheader) + mheader.length;
 
@@ -160,120 +279,27 @@ static bool handle_magic_bpt(void)
   fname.sprnt("dtxmsg_%d_%d.bin", mheader.identifier, mheader.fragmentId);
   qmakepath(path, sizeof(path), logdir, fname.c_str(), NULL);
 
-  FILE *fp = qfopen(path, "wb");
-  if ( fp == NULL )
+  FILE *message_fp = qfopen(path, "wb");
+  if ( message_fp == NULL )
   {
     dtxmsg_deb("Error: failed to open %s: %s\n", path, winerr(errno));
     return false;
   }
 
-  qfwrite(fp, dtxmsg.begin(), size);
-  qfclose(fp);
+  qfwrite(message_fp, dtxmsg.begin(), size);
+  qfclose(message_fp);
 
   dtxmsg_deb("message: %s\n", path);
 
-  // payload data
-  ea_t pbuf = buf + sizeof(mheader);
-  ea_t plen = mheader.length;
+  // don't try to parse any of the message data unless instructed
+  bool ok = true;
+  if ( verbose )
+    ok = handle_message_fragment(buf, mheader);
 
-  if ( mheader.fragmentId <= 1 )
-  {
-    // payload header
-    if ( !tif.get_named_type(NULL, "DTXMessagePayloadHeader") )
-    {
-      dtxmsg_deb("Error: failed to retrieve tinfo for DTXMessagePayloadHeader\n");
-      return false;
-    }
+  qfprintf(headers_fp, "\n");
+  qflush(headers_fp);
 
-    loc.set_ea(pbuf);
-    outvec.clear();
-
-    if ( !format_cdata(&outvec, idcv, &tif, NULL, &fdi) )
-    {
-      dtxmsg_deb("Error: format_cdata() failed for data at %a\n", pbuf);
-      return false;
-    }
-
-    qfprintf(logfp, "\t- DTXMessagePayloadHeader: %s\n", outvec[0].c_str());
-    qflush(logfp);
-  }
-
-  bytevec_t payload;
-  payload.resize(plen);
-  if ( plen != 0 && read_dbg_memory(pbuf, payload.begin(), plen) != plen )
-  {
-    dtxmsg_deb("Error: failed to read %a bytes of payload at %a\n", plen, pbuf);
-    return false;
-  }
-
-  fname.sprnt("payload_%d.bin", mheader.identifier);
-  qmakepath(path, sizeof(path), logdir, fname.c_str(), NULL);
-
-  fp = qfopen(path, "a");
-  if ( fp == NULL )
-  {
-    dtxmsg_deb("Error: failed to open %s: %s\n", path, winerr(errno));
-    return false;
-  }
-
-  qfwrite(fp, payload.begin(), plen);
-  qfclose(fp);
-
-  dtxmsg_deb("payload: %s\n", path);
-
-  // after writing the last fragment, deserialize the complete payload
-  if ( mheader.fragmentId == mheader.fragmentCount - 1 )
-  {
-    fp = qfopen(path, "rb");
-    if ( fp == NULL )
-    {
-      dtxmsg_deb("Error: failed to open payload file %s for reading: %s\n", path, winerr(errno));
-      return false;
-    }
-    file_janitor_t j(fp);
-
-    DTXMessagePayloadHeader pheader;
-    if ( qfread(fp, &pheader, sizeof(pheader)) != sizeof(pheader) )
-    {
-      dtxmsg_deb("Error: failed to read payload header from %s: %s\n", path, winerr(errno));
-      return false;
-    }
-
-    uint8 message_type = pheader.flags & 0xFF;
-    uint8 compression_type = pheader.flags & 0xFF000 >> 12;
-    uint32 algorithm = 0;
-
-    if ( message_type == 6 )
-    {
-      dtxmsg_deb("Error: message payload is a serialized dictionary. we only know how to deserialize arrays.\n");
-      return false;
-    }
-
-    // it seems Xcode does not normally use compression when sending messages to the instruments server.
-    // for now we will assume that it doesn't, and throw an error if compression is detected.
-    if ( message_type == 7 && compression_type > 3 )
-    {
-      dtxmsg_deb("Error: message is compressed (compression_type=%x). We must uncompress it before we read it!\n", compression_type);
-      return false;
-    }
-
-    asize_t auxlen = pheader.auxiliaryLength;
-    asize_t objlen = pheader.totalLength - auxlen;
-
-    // the complete payload is broken up into two components:
-    // 1. the payload object (a single archived NSObject)
-    // 2. auxiliary data (a serialized array of archived NSObjects)
-    if ( !parse_payload_component("auxiliary", mheader.identifier, fp, sizeof(pheader), auxlen, true)
-      || !parse_payload_component("object",    mheader.identifier, fp, sizeof(pheader) + auxlen, objlen, false) )
-    {
-      return false;
-    }
-  }
-
-  qfprintf(logfp, "\n");
-  qflush(logfp);
-
-  return true;
+  return ok;
 }
 
 //-----------------------------------------------------------------------------
@@ -292,7 +318,8 @@ static ssize_t idaapi dbg_callback(void *, int notification_code, va_list va)
         if ( node.altval_ea(bpt, DTXMSG_ALT_BPTS) == 0 )
           break;
 
-        dtxmsg_deb("magic bpt: %a, tid=%d\n", bpt, tid);
+        if ( verbose )
+          dtxmsg_deb("magic bpt: %a, tid=%d\n", bpt, tid);
 
         if ( !handle_magic_bpt() )
           break;
@@ -557,17 +584,41 @@ static int idaapi init(void)
   }
 
   char path[QMAXPATH];
-  const char *fname = ph.id == PLFM_ARM ? "requests.log" : "responses.log";
-  qmakepath(path, sizeof(path), logdir, fname, NULL);
+  qmakepath(path, sizeof(path), logdir, "headers.log", NULL);
 
-  logfp = qfopen(path, "w");
-  if ( logfp == NULL )
+  headers_fp = qfopen(path, "w");
+  if ( headers_fp == NULL )
   {
     dtxmsg_deb("Error: failed to open %s: %s\n", path, winerr(errno));
     return PLUGIN_SKIP;
   }
 
-  dtxmsg_deb("logging to: %s\n", path);
+  dtxmsg_deb("logging header info to: %s\n", path);
+
+  // parse command line arguments
+  qstring cmdline = get_plugin_options("dtxmsg");
+  if ( !cmdline.empty() )
+  {
+    char *ctx = NULL;
+    for ( char *tok = qstrtok(cmdline.begin(), ":", &ctx);
+          tok != NULL;
+          tok = qstrtok(NULL, ":", &ctx) )
+    {
+      if ( qstrlen(tok) == 1 )
+      {
+        switch ( tok[0] )
+        {
+          case 'v':
+          case 'V':
+            verbose = true;
+            continue;
+          default:
+            break;
+        }
+      }
+      dtxmsg_deb("Warning: bad command line arg: %s\n", tok);
+    }
+  }
 
   hook_to_notification_point(HT_DBG, dbg_callback);
   hook_to_notification_point(HT_IDB, idb_callback);
@@ -581,10 +632,10 @@ static void idaapi term(void)
   unhook_from_notification_point(HT_DBG, dbg_callback);
   unhook_from_notification_point(HT_IDB, idb_callback);
 
-  if ( logfp != NULL )
+  if ( headers_fp != NULL )
   {
-    qfclose(logfp);
-    logfp = NULL;
+    qfclose(headers_fp);
+    headers_fp = NULL;
   }
 
   if ( hexdsp != NULL )
