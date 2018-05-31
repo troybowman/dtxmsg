@@ -95,6 +95,188 @@ static bool parse_payload_component(
 }
 
 //-----------------------------------------------------------------------------
+static bool handle_magic_bpt(void)
+{
+  // read the return value register
+  regval_t val;
+  if ( !get_reg_val(ph.id == PLFM_ARM ? "X0" : "RAX", &val) )
+  {
+    dtxmsg_deb("Error: failed to read value from return register\n");
+    return false;
+  }
+
+  ea_t buf = val.ival; // pointer to the message buffer
+
+  tinfo_t tif;
+  if ( !tif.get_named_type(NULL, "DTXMessageHeader") )
+  {
+    dtxmsg_deb("Error: failed to retrieve tinfo for DTXMessageHeader\n");
+    return false;
+  }
+
+  format_data_info_t fdi;
+  fdi.ptvf = PTV_SPACE|PTV_QUEST|PTV_CSTR|PTV_DEBUG|PTV_DEREF;
+  fdi.radix = 16;
+  fdi.margin = 0;
+  fdi.max_length = MAXSTR;
+
+  argloc_t loc;
+  loc.set_ea(buf);
+
+  idc_value_t idcv;
+  idcv.vtype = VT_PVOID;
+  idcv.pvoid = &loc;
+
+  qstrvec_t outvec;
+  if ( !format_cdata(&outvec, idcv, &tif, NULL, &fdi) )
+  {
+    dtxmsg_deb("Error: format_cdata() failed for data at %a\n", buf);
+    return false;
+  }
+
+  DTXMessageHeader mheader;
+  if ( read_dbg_memory(buf, &mheader, sizeof(mheader)) != sizeof(mheader) )
+  {
+    dtxmsg_deb("Error: failed to read DTXMessageHeader at %a\n", buf);
+    return false;
+  }
+
+  qfprintf(logfp, "%d.%d: DTXMessageHeader: %s\n", mheader.identifier, mheader.fragmentId, outvec[0].c_str());
+  qflush(logfp);
+
+  asize_t size = sizeof(mheader) + mheader.length;
+
+  bytevec_t dtxmsg;
+  dtxmsg.resize(size);
+  if ( read_dbg_memory(buf, dtxmsg.begin(), size) != size )
+  {
+    dtxmsg_deb("Error: failed to read %a bytes of DTXMessage data at %a\n", size, buf);
+    return false;
+  }
+
+  char path[QMAXPATH];
+
+  qstring fname;
+  fname.sprnt("dtxmsg_%d_%d.bin", mheader.identifier, mheader.fragmentId);
+  qmakepath(path, sizeof(path), logdir, fname.c_str(), NULL);
+
+  FILE *fp = qfopen(path, "wb");
+  if ( fp == NULL )
+  {
+    dtxmsg_deb("Error: failed to open %s: %s\n", path, winerr(errno));
+    return false;
+  }
+
+  qfwrite(fp, dtxmsg.begin(), size);
+  qfclose(fp);
+
+  dtxmsg_deb("message: %s\n", path);
+
+  // payload data
+  ea_t pbuf = buf + sizeof(mheader);
+  ea_t plen = mheader.length;
+
+  if ( mheader.fragmentId <= 1 )
+  {
+    // payload header
+    if ( !tif.get_named_type(NULL, "DTXMessagePayloadHeader") )
+    {
+      dtxmsg_deb("Error: failed to retrieve tinfo for DTXMessagePayloadHeader\n");
+      return false;
+    }
+
+    loc.set_ea(pbuf);
+    outvec.clear();
+
+    if ( !format_cdata(&outvec, idcv, &tif, NULL, &fdi) )
+    {
+      dtxmsg_deb("Error: format_cdata() failed for data at %a\n", pbuf);
+      return false;
+    }
+
+    qfprintf(logfp, "\t- DTXMessagePayloadHeader: %s\n", outvec[0].c_str());
+    qflush(logfp);
+  }
+
+  bytevec_t payload;
+  payload.resize(plen);
+  if ( plen != 0 && read_dbg_memory(pbuf, payload.begin(), plen) != plen )
+  {
+    dtxmsg_deb("Error: failed to read %a bytes of payload at %a\n", plen, pbuf);
+    return false;
+  }
+
+  fname.sprnt("payload_%d.bin", mheader.identifier);
+  qmakepath(path, sizeof(path), logdir, fname.c_str(), NULL);
+
+  fp = qfopen(path, "a");
+  if ( fp == NULL )
+  {
+    dtxmsg_deb("Error: failed to open %s: %s\n", path, winerr(errno));
+    return false;
+  }
+
+  qfwrite(fp, payload.begin(), plen);
+  qfclose(fp);
+
+  dtxmsg_deb("payload: %s\n", path);
+
+  // after writing the last fragment, deserialize the complete payload
+  if ( mheader.fragmentId == mheader.fragmentCount - 1 )
+  {
+    fp = qfopen(path, "rb");
+    if ( fp == NULL )
+    {
+      dtxmsg_deb("Error: failed to open payload file %s for reading: %s\n", path, winerr(errno));
+      return false;
+    }
+    file_janitor_t j(fp);
+
+    DTXMessagePayloadHeader pheader;
+    if ( qfread(fp, &pheader, sizeof(pheader)) != sizeof(pheader) )
+    {
+      dtxmsg_deb("Error: failed to read payload header from %s: %s\n", path, winerr(errno));
+      return false;
+    }
+
+    uint8 message_type = pheader.flags & 0xFF;
+    uint8 compression_type = pheader.flags & 0xFF000 >> 12;
+    uint32 algorithm = 0;
+
+    if ( message_type == 6 )
+    {
+      dtxmsg_deb("Error: message payload is a serialized dictionary. we only know how to deserialize arrays.\n");
+      return false;
+    }
+
+    // it seems Xcode does not normally use compression when sending messages to the instruments server.
+    // for now we will assume that it doesn't, and throw an error if compression is detected.
+    if ( message_type == 7 && compression_type > 3 )
+    {
+      dtxmsg_deb("Error: message is compressed (compression_type=%x). We must uncompress it before we read it!\n", compression_type);
+      return false;
+    }
+
+    asize_t auxlen = pheader.auxiliaryLength;
+    asize_t objlen = pheader.totalLength - auxlen;
+
+    // the complete payload is broken up into two components:
+    // 1. the payload object (a single archived NSObject)
+    // 2. auxiliary data (a serialized array of archived NSObjects)
+    if ( !parse_payload_component("auxiliary", mheader.identifier, fp, sizeof(pheader), auxlen, true)
+      || !parse_payload_component("object",    mheader.identifier, fp, sizeof(pheader) + auxlen, objlen, false) )
+    {
+      return false;
+    }
+  }
+
+  qfprintf(logfp, "\n");
+  qflush(logfp);
+
+  return true;
+}
+
+//-----------------------------------------------------------------------------
 static ssize_t idaapi dbg_callback(void *, int notification_code, va_list va)
 {
   switch ( notification_code )
@@ -112,181 +294,10 @@ static ssize_t idaapi dbg_callback(void *, int notification_code, va_list va)
 
         dtxmsg_deb("magic bpt: %a, tid=%d\n", bpt, tid);
 
-        regval_t val;
-        if ( !get_reg_val(ph.id == PLFM_ARM ? "X0" : "RAX", &val) )
-        {
-          dtxmsg_deb("Error: failed to read value from return register\n");
+        if ( !handle_magic_bpt() )
           break;
-        }
 
-        ea_t buf = val.ival;
-
-        tinfo_t tif;
-        if ( !tif.get_named_type(NULL, "DTXMessageHeader") )
-        {
-          dtxmsg_deb("Error: failed to retrieve tinfo for DTXMessageHeader\n");
-          break;
-        }
-
-        format_data_info_t fdi;
-        fdi.ptvf = PTV_SPACE|PTV_QUEST|PTV_CSTR|PTV_DEBUG|PTV_DEREF;
-        fdi.radix = 16;
-        fdi.margin = 0;
-        fdi.max_length = MAXSTR;
-
-        argloc_t loc;
-        loc.set_ea(buf);
-
-        idc_value_t idcv;
-        idcv.vtype = VT_PVOID;
-        idcv.pvoid = &loc;
-
-        qstrvec_t outvec;
-        if ( !format_cdata(&outvec, idcv, &tif, NULL, &fdi) )
-        {
-          dtxmsg_deb("Error: format_cdata() failed for data at %a\n", buf);
-          break;
-        }
-
-        DTXMessageHeader mheader;
-        if ( read_dbg_memory(buf, &mheader, sizeof(mheader)) != sizeof(mheader) )
-        {
-          dtxmsg_deb("Error: failed to read DTXMessageHeader at %a\n", buf);
-          break;
-        }
-
-        qfprintf(logfp, "%d.%d: DTXMessageHeader: %s\n", mheader.identifier, mheader.fragmentId, outvec[0].c_str());
-        qflush(logfp);
-
-        asize_t size = sizeof(mheader) + mheader.length;
-
-        bytevec_t dtxmsg;
-        dtxmsg.resize(size);
-        if ( read_dbg_memory(buf, dtxmsg.begin(), size) != size )
-        {
-          dtxmsg_deb("Error: failed to read %a bytes of DTXMessage data at %a\n", size, buf);
-          break;
-        }
-
-        char path[QMAXPATH];
-
-        qstring fname;
-        fname.sprnt("dtxmsg_%d_%d.bin", mheader.identifier, mheader.fragmentId);
-        qmakepath(path, sizeof(path), logdir, fname.c_str(), NULL);
-
-        FILE *fp = qfopen(path, "wb");
-        if ( fp == NULL )
-        {
-          dtxmsg_deb("Error: failed to open %s: %s\n", path, winerr(errno));
-          break;
-        }
-
-        qfwrite(fp, dtxmsg.begin(), size);
-        qfclose(fp);
-
-        dtxmsg_deb("message: %s\n", path);
-
-        // payload data
-        ea_t pbuf = buf + sizeof(mheader);
-        ea_t plen = mheader.length;
-
-        if ( mheader.fragmentId <= 1 )
-        {
-          // payload header
-          if ( !tif.get_named_type(NULL, "DTXMessagePayloadHeader") )
-          {
-            dtxmsg_deb("Error: failed to retrieve tinfo for DTXMessagePayloadHeader\n");
-            break;
-          }
-
-          loc.set_ea(pbuf);
-          outvec.clear();
-
-          if ( !format_cdata(&outvec, idcv, &tif, NULL, &fdi) )
-          {
-            dtxmsg_deb("Error: format_cdata() failed for data at %a\n", pbuf);
-            break;
-          }
-
-          qfprintf(logfp, "\t- DTXMessagePayloadHeader: %s\n", outvec[0].c_str());
-          qflush(logfp);
-        }
-
-        bytevec_t payload;
-        payload.resize(plen);
-        if ( plen != 0 && read_dbg_memory(pbuf, payload.begin(), plen) != plen )
-        {
-          dtxmsg_deb("Error: failed to read %a bytes of payload at %a\n", plen, pbuf);
-          break;
-        }
-
-        fname.sprnt("payload_%d.bin", mheader.identifier);
-        qmakepath(path, sizeof(path), logdir, fname.c_str(), NULL);
-
-        fp = qfopen(path, "a");
-        if ( fp == NULL )
-        {
-          dtxmsg_deb("Error: failed to open %s: %s\n", path, winerr(errno));
-          break;
-        }
-
-        qfwrite(fp, payload.begin(), plen);
-        qfclose(fp);
-
-        dtxmsg_deb("payload: %s\n", path);
-
-        // after writing the last fragment, deserialize the complete payload
-        if ( mheader.fragmentId == mheader.fragmentCount - 1 )
-        {
-          fp = qfopen(path, "rb");
-          if ( fp == NULL )
-          {
-            dtxmsg_deb("Error: failed to open payload file %s for reading: %s\n", path, winerr(errno));
-            break;
-          }
-          file_janitor_t j(fp);
-
-          DTXMessagePayloadHeader pheader;
-          if ( qfread(fp, &pheader, sizeof(pheader)) != sizeof(pheader) )
-          {
-            dtxmsg_deb("Error: failed to read payload header from %s: %s\n", path, winerr(errno));
-            break;
-          }
-
-          uint8 message_type = pheader.flags & 0xFF;
-          uint8 compression_type = pheader.flags & 0xFF000 >> 12;
-          uint32 algorithm = 0;
-
-          if ( message_type == 6 )
-          {
-            dtxmsg_deb("Error: message payload is a serialized dictionary. we only know how to deserialize arrays.\n");
-            break;
-          }
-
-          // it seems Xcode does not normally use compression when sending messages to the instruments server.
-          // for now we will assume that it doesn't, and throw an error if compression is detected.
-          if ( message_type == 7 && compression_type > 3 )
-          {
-            dtxmsg_deb("Error: message is compressed (compression_type=%x). We must uncompress it before we read it!\n", compression_type);
-            break;
-          }
-
-          asize_t auxlen = pheader.auxiliaryLength;
-          asize_t objlen = pheader.totalLength - auxlen;
-
-          // the complete payload is broken up into two components:
-          // 1. the payload object (a single archived NSObject)
-          // 2. auxiliary data (a serialized array of archived NSObjects)
-          if ( !parse_payload_component("auxiliary", mheader.identifier, fp, sizeof(pheader), auxlen, true)
-            || !parse_payload_component("object",    mheader.identifier, fp, sizeof(pheader) + auxlen, objlen, false) )
-          {
-            break;
-          }
-        }
-
-        qfprintf(logfp, "\n");
-        qflush(logfp);
-
+        // resume process
         request_continue_process();
         run_requests();
       }
