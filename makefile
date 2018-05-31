@@ -1,14 +1,15 @@
 PROC = dtxmsg
 O1 = dtxmsg_common
 
-POSTACTION = cp $@ /Users/troy/INSTALLERS/71/ida/ida.app/Contents/MacOS/plugins
-
 include ../plugin.mak
 
 STDLIBS += -lobjc -framework Foundation -framework CoreFoundation
+POSTACTION = cp $@ /Users/troy/INSTALLERS/71/ida/ida.app/Contents/MacOS/plugins
 
 $(F)dtxmsg_common$(O): CFLAGS += -x objective-c++
 
+# dtxmsg_client must link against dumb.o and pro.a,
+# which are only available for __EA64__ builds
 ifdef __EA64__
 ADDITIONAL_GOALS += dtxmsg_client
 .PHONY: dtxmsg_client
