@@ -1,10 +1,11 @@
 PROC = dtxmsg
 O1 = dtxmsg_common
 
+POSTACTION = cp $@ /Users/troy/INSTALLERS/71/ida/ida.app/Contents/MacOS/plugins
+
 include ../plugin.mak
 
-LIBS += -lobjc -framework Foundation -framework CoreFoundation
-STDLIBS += $(LIBS)
+STDLIBS += -lobjc -framework Foundation -framework CoreFoundation
 
 $(F)dtxmsg_common$(O): CFLAGS += -x objective-c++
 

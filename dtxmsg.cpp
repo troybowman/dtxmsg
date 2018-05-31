@@ -100,219 +100,197 @@ static ssize_t idaapi dbg_callback(void *, int notification_code, va_list va)
   switch ( notification_code )
   {
     case dbg_bpt:
-    {
-      thid_t tid = va_arg(va, thid_t);
-      ea_t bpt   = va_arg(va, ea_t);
-
-      netnode node;
-      node.create(DTXMSG_NODE);
-
-      if ( node.altval_ea(bpt, DTXMSG_ALT_BPTS) == 0 )
-        break;
-
-      dtxmsg_deb("magic bpt: %a, tid=%d\n", bpt, tid);
-
-      regval_t val;
-      if ( !get_reg_val(ph.id == PLFM_ARM ? "X0" : "RAX", &val) )
       {
-        dtxmsg_deb("Error: failed to read value from return register\n");
-        break;
-      }
+        thid_t tid = va_arg(va, thid_t);
+        ea_t bpt   = va_arg(va, ea_t);
 
-      ea_t buf = val.ival;
+        netnode node;
+        node.create(DTXMSG_NODE);
 
-      tinfo_t tif;
-      if ( !tif.get_named_type(NULL, "DTXMessageHeader") )
-      {
-        dtxmsg_deb("Error: failed to retrieve tinfo for DTXMessageHeader\n");
-        break;
-      }
+        if ( node.altval_ea(bpt, DTXMSG_ALT_BPTS) == 0 )
+          break;
 
-      format_data_info_t fdi;
-      fdi.ptvf = PTV_SPACE|PTV_QUEST|PTV_CSTR|PTV_DEBUG|PTV_DEREF;
-      fdi.radix = 16;
-      fdi.margin = 0;
-      fdi.max_length = MAXSTR;
+        dtxmsg_deb("magic bpt: %a, tid=%d\n", bpt, tid);
 
-      argloc_t loc;
-      loc.set_ea(buf);
-
-      idc_value_t idcv;
-      idcv.vtype = VT_PVOID;
-      idcv.pvoid = &loc;
-
-      qstrvec_t outvec;
-      if ( !format_cdata(&outvec, idcv, &tif, NULL, &fdi) )
-      {
-        dtxmsg_deb("Error: format_cdata() failed for data at %a\n", buf);
-        break;
-      }
-
-      DTXMessageHeader mheader;
-      if ( read_dbg_memory(buf, &mheader, sizeof(mheader)) != sizeof(mheader) )
-      {
-        dtxmsg_deb("Error: failed to read DTXMessageHeader at %a\n", buf);
-        break;
-      }
-
-      qfprintf(logfp, "%d.%d: DTXMessageHeader: %s\n", mheader.identifier, mheader.fragmentId, outvec[0].c_str());
-      qflush(logfp);
-
-      asize_t size = sizeof(mheader) + mheader.length;
-
-      bytevec_t dtxmsg;
-      dtxmsg.resize(size);
-      if ( read_dbg_memory(buf, dtxmsg.begin(), size) != size )
-      {
-        dtxmsg_deb("Error: failed to read %a bytes of DTXMessage data at %a\n", size, buf);
-        break;
-      }
-
-      char path[QMAXPATH];
-
-      qstring fname;
-      fname.sprnt("dtxmsg_%d_%d.bin", mheader.identifier, mheader.fragmentId);
-      qmakepath(path, sizeof(path), logdir, fname.c_str(), NULL);
-
-      FILE *fp = qfopen(path, "wb");
-      if ( fp == NULL )
-      {
-        dtxmsg_deb("Error: failed to open %s: %s\n", path, winerr(errno));
-        break;
-      }
-
-      qfwrite(fp, dtxmsg.begin(), size);
-      qfclose(fp);
-
-      dtxmsg_deb("message: %s\n", path);
-
-      // payload data
-      ea_t pbuf = buf + sizeof(mheader);
-      ea_t plen = mheader.length;
-
-      if ( mheader.fragmentId <= 1 )
-      {
-        // payload header
-        if ( !tif.get_named_type(NULL, "DTXMessagePayloadHeader") )
+        regval_t val;
+        if ( !get_reg_val(ph.id == PLFM_ARM ? "X0" : "RAX", &val) )
         {
-          dtxmsg_deb("Error: failed to retrieve tinfo for DTXMessagePayloadHeader\n");
+          dtxmsg_deb("Error: failed to read value from return register\n");
           break;
         }
 
-        loc.set_ea(pbuf);
-        outvec.clear();
+        ea_t buf = val.ival;
 
+        tinfo_t tif;
+        if ( !tif.get_named_type(NULL, "DTXMessageHeader") )
+        {
+          dtxmsg_deb("Error: failed to retrieve tinfo for DTXMessageHeader\n");
+          break;
+        }
+
+        format_data_info_t fdi;
+        fdi.ptvf = PTV_SPACE|PTV_QUEST|PTV_CSTR|PTV_DEBUG|PTV_DEREF;
+        fdi.radix = 16;
+        fdi.margin = 0;
+        fdi.max_length = MAXSTR;
+
+        argloc_t loc;
+        loc.set_ea(buf);
+
+        idc_value_t idcv;
+        idcv.vtype = VT_PVOID;
+        idcv.pvoid = &loc;
+
+        qstrvec_t outvec;
         if ( !format_cdata(&outvec, idcv, &tif, NULL, &fdi) )
         {
-          dtxmsg_deb("Error: format_cdata() failed for data at %a\n", pbuf);
+          dtxmsg_deb("Error: format_cdata() failed for data at %a\n", buf);
           break;
         }
 
-        qfprintf(logfp, "\t- DTXMessagePayloadHeader: %s\n", outvec[0].c_str());
+        DTXMessageHeader mheader;
+        if ( read_dbg_memory(buf, &mheader, sizeof(mheader)) != sizeof(mheader) )
+        {
+          dtxmsg_deb("Error: failed to read DTXMessageHeader at %a\n", buf);
+          break;
+        }
+
+        qfprintf(logfp, "%d.%d: DTXMessageHeader: %s\n", mheader.identifier, mheader.fragmentId, outvec[0].c_str());
         qflush(logfp);
-      }
 
-      bytevec_t payload;
-      payload.resize(plen);
-      if ( plen != 0 && read_dbg_memory(pbuf, payload.begin(), plen) != plen )
-      {
-        dtxmsg_deb("Error: failed to read %a bytes of payload at %a\n", plen, pbuf);
-        break;
-      }
+        asize_t size = sizeof(mheader) + mheader.length;
 
-      fname.sprnt("payload_%d.bin", mheader.identifier);
-      qmakepath(path, sizeof(path), logdir, fname.c_str(), NULL);
+        bytevec_t dtxmsg;
+        dtxmsg.resize(size);
+        if ( read_dbg_memory(buf, dtxmsg.begin(), size) != size )
+        {
+          dtxmsg_deb("Error: failed to read %a bytes of DTXMessage data at %a\n", size, buf);
+          break;
+        }
 
-      fp = qfopen(path, "a");
-      if ( fp == NULL )
-      {
-        dtxmsg_deb("Error: failed to open %s: %s\n", path, winerr(errno));
-        break;
-      }
+        char path[QMAXPATH];
 
-      qfwrite(fp, payload.begin(), plen);
-      qfclose(fp);
+        qstring fname;
+        fname.sprnt("dtxmsg_%d_%d.bin", mheader.identifier, mheader.fragmentId);
+        qmakepath(path, sizeof(path), logdir, fname.c_str(), NULL);
 
-      dtxmsg_deb("payload: %s\n", path);
-
-      // after writing the last fragment, deserialize the complete payload
-      if ( mheader.fragmentId == mheader.fragmentCount - 1 )
-      {
-        fp = qfopen(path, "rb");
+        FILE *fp = qfopen(path, "wb");
         if ( fp == NULL )
         {
-          dtxmsg_deb("Error: failed to open payload file %s for reading: %s\n", path, winerr(errno));
-          break;
-        }
-        file_janitor_t j(fp);
-
-        DTXMessagePayloadHeader pheader;
-        if ( qfread(fp, &pheader, sizeof(pheader)) != sizeof(pheader) )
-        {
-          dtxmsg_deb("Error: failed to read payload header from %s: %s\n", path, winerr(errno));
+          dtxmsg_deb("Error: failed to open %s: %s\n", path, winerr(errno));
           break;
         }
 
-        uint8 message_type = pheader.flags & 0xFF;
-        uint8 compression_type = pheader.flags & 0xFF000 >> 12;
-        uint32 algorithm = 0;
+        qfwrite(fp, dtxmsg.begin(), size);
+        qfclose(fp);
 
-        if ( message_type == 6 )
+        dtxmsg_deb("message: %s\n", path);
+
+        // payload data
+        ea_t pbuf = buf + sizeof(mheader);
+        ea_t plen = mheader.length;
+
+        if ( mheader.fragmentId <= 1 )
         {
-          dtxmsg_deb("Error: message payload is a serialized dictionary. we only know how to deserialize arrays.\n");
-          break;
-        }
-
-        // it seems Xcode does not normally use compression when sending messages to the instruments server.
-        // for now we will assume that it doesn't, and throw an error if compression is detected.
-        if ( message_type == 7 && compression_type > 3 )
-        {
-          uint8 idx = compression_type - 3;
-
-          ea_t base = node.altval(DTXMSG_ALT_TABLE);
-          if ( base == 0 )
+          // payload header
+          if ( !tif.get_named_type(NULL, "DTXMessagePayloadHeader") )
           {
-            dtxmsg_deb("Error: failed to find the compression algorithm table\n");
+            dtxmsg_deb("Error: failed to retrieve tinfo for DTXMessagePayloadHeader\n");
             break;
           }
 
-          ea_t ptr = base + (idx * 4);
-          if ( ptr >= base && ptr < base + get_item_size(base) )
+          loc.set_ea(pbuf);
+          outvec.clear();
+
+          if ( !format_cdata(&outvec, idcv, &tif, NULL, &fdi) )
           {
-            if ( read_dbg_memory(ptr, &algorithm, sizeof(algorithm)) != sizeof(algorithm) )
-            {
-              dtxmsg_deb("Error: failed to read compression algorithm id at %a\n", ptr);
-              break;
-            }
+            dtxmsg_deb("Error: format_cdata() failed for data at %a\n", pbuf);
+            break;
+          }
+
+          qfprintf(logfp, "\t- DTXMessagePayloadHeader: %s\n", outvec[0].c_str());
+          qflush(logfp);
+        }
+
+        bytevec_t payload;
+        payload.resize(plen);
+        if ( plen != 0 && read_dbg_memory(pbuf, payload.begin(), plen) != plen )
+        {
+          dtxmsg_deb("Error: failed to read %a bytes of payload at %a\n", plen, pbuf);
+          break;
+        }
+
+        fname.sprnt("payload_%d.bin", mheader.identifier);
+        qmakepath(path, sizeof(path), logdir, fname.c_str(), NULL);
+
+        fp = qfopen(path, "a");
+        if ( fp == NULL )
+        {
+          dtxmsg_deb("Error: failed to open %s: %s\n", path, winerr(errno));
+          break;
+        }
+
+        qfwrite(fp, payload.begin(), plen);
+        qfclose(fp);
+
+        dtxmsg_deb("payload: %s\n", path);
+
+        // after writing the last fragment, deserialize the complete payload
+        if ( mheader.fragmentId == mheader.fragmentCount - 1 )
+        {
+          fp = qfopen(path, "rb");
+          if ( fp == NULL )
+          {
+            dtxmsg_deb("Error: failed to open payload file %s for reading: %s\n", path, winerr(errno));
+            break;
+          }
+          file_janitor_t j(fp);
+
+          DTXMessagePayloadHeader pheader;
+          if ( qfread(fp, &pheader, sizeof(pheader)) != sizeof(pheader) )
+          {
+            dtxmsg_deb("Error: failed to read payload header from %s: %s\n", path, winerr(errno));
+            break;
+          }
+
+          uint8 message_type = pheader.flags & 0xFF;
+          uint8 compression_type = pheader.flags & 0xFF000 >> 12;
+          uint32 algorithm = 0;
+
+          if ( message_type == 6 )
+          {
+            dtxmsg_deb("Error: message payload is a serialized dictionary. we only know how to deserialize arrays.\n");
+            break;
+          }
+
+          // it seems Xcode does not normally use compression when sending messages to the instruments server.
+          // for now we will assume that it doesn't, and throw an error if compression is detected.
+          if ( message_type == 7 && compression_type > 3 )
+          {
+            dtxmsg_deb("Error: message is compressed (compression_type=%x). We must uncompress it before we read it!\n", compression_type);
+            break;
+          }
+
+          asize_t auxlen = pheader.auxiliaryLength;
+          asize_t objlen = pheader.totalLength - auxlen;
+
+          // the complete payload is broken up into two components:
+          // 1. the payload object (a single archived NSObject)
+          // 2. auxiliary data (a serialized array of archived NSObjects)
+          if ( !parse_payload_component("auxiliary", mheader.identifier, fp, sizeof(pheader), auxlen, true)
+            || !parse_payload_component("object",    mheader.identifier, fp, sizeof(pheader) + auxlen, objlen, false) )
+          {
+            break;
           }
         }
 
-        if ( algorithm != 0 )
-        {
-          dtxmsg_deb("Error: message is compressed (algorithm=%x). We must uncompress it before we read it!\n", algorithm);
-          break;
-        }
+        qfprintf(logfp, "\n");
+        qflush(logfp);
 
-        asize_t auxlen = pheader.auxiliaryLength;
-        asize_t objlen = pheader.totalLength - auxlen;
-
-        // the complete payload is broken up into two components:
-        // 1. the payload object (a single archived NSObject)
-        // 2. auxiliary data (a serialized array of archived NSObjects)
-        if ( !parse_payload_component("auxiliary", mheader.identifier, fp, sizeof(pheader), auxlen, true)
-          || !parse_payload_component("object",    mheader.identifier, fp, sizeof(pheader) + auxlen, objlen, false) )
-        {
-          break;
-        }
+        request_continue_process();
+        run_requests();
       }
-
-      qfprintf(logfp, "\n");
-      qflush(logfp);
-
-      request_continue_process();
-      run_requests();
       break;
-    }
 
     default:
       break;
@@ -331,8 +309,6 @@ static void print_node_info(const char *pfx)
   dtxmsg_deb("  footprint:  %a\n", node.altval(DTXMSG_ALT_FOOTPRINT));
   dtxmsg_deb("  parse:      %a\n", node.altval(DTXMSG_ALT_PARSE));
   dtxmsg_deb("  wait:       %a\n", node.altval(DTXMSG_ALT_WAIT));
-  dtxmsg_deb("  uncompress: %a\n", node.altval(DTXMSG_ALT_UNCOMPRESS));
-  dtxmsg_deb("  table:      %a\n", node.altval(DTXMSG_ALT_TABLE));
 
   for ( nodeidx_t idx = node.altfirst(DTXMSG_ALT_BPTS);
         idx != BADNODE;
@@ -348,150 +324,106 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
   switch ( notification_code )
   {
     case idb_event::auto_empty_finally:
-    {
-      if ( hexdsp == NULL )
-        break;
-
-      netnode node;
-      node.create(DTXMSG_NODE);
-
-      ea_t ea = node.altval(DTXMSG_ALT_PARSE);
-      func_t *pfn = get_func(ea);
-      if ( pfn == NULL )
       {
-        dtxmsg_deb("Error: no function found at %a\n", ea);
-        break;
-      }
+        if ( hexdsp == NULL )
+          break;
 
-      hexrays_failure_t hf;
-      cfuncptr_t cfunc = decompile(pfn, &hf);
-      if ( cfunc == NULL )
-      {
-        dtxmsg_deb("Error: decompilation failed. code=%d, addr=%a, err=%s\n", hf.code, hf.errea, hf.str.c_str());
-        break;
-      }
+        netnode node;
+        node.create(DTXMSG_NODE);
 
-      // add breakpoints after calls to -[DTXMessageParser waitForMoreData:incrementalBuffer:].
-      // this function will return a pointer to the raw DTXMessage data.
-      struct ida_local bpt_finder_t : public ctree_visitor_t
-      {
-        netnode &node;
-        bpt_finder_t(netnode &_node) : ctree_visitor_t(CV_FAST), node(_node) {}
-
-        virtual int idaapi visit_expr(cexpr_t *e)
+        ea_t ea = node.altval(DTXMSG_ALT_PARSE);
+        func_t *pfn = get_func(ea);
+        if ( pfn == NULL )
         {
-          if ( e->op == cot_call )
+          dtxmsg_deb("Error: no function found at %a\n", ea);
+          break;
+        }
+
+        hexrays_failure_t hf;
+        cfuncptr_t cfunc = decompile(pfn, &hf);
+        if ( cfunc == NULL )
+        {
+          dtxmsg_deb("Error: decompilation failed. code=%d, addr=%a, err=%s\n", hf.code, hf.errea, hf.str.c_str());
+          break;
+        }
+
+        // add breakpoints after calls to -[DTXMessageParser waitForMoreData:incrementalBuffer:].
+        // this function will return a pointer to the raw DTXMessage data.
+        struct ida_local bpt_finder_t : public ctree_visitor_t
+        {
+          netnode &node;
+          bpt_finder_t(netnode &_node) : ctree_visitor_t(CV_FAST), node(_node) {}
+
+          virtual int idaapi visit_expr(cexpr_t *e)
           {
-            ea_t callee = e->x->obj_ea;
-            if ( callee == node.altval(DTXMSG_ALT_WAIT) // objc plugin might have set this
-              || callee == get_name_ea(BADADDR, "_objc_msgSend") )
+            if ( e->op == cot_call )
             {
-              const carglist_t &args = *e->a;
-
-              if ( args.size() == 4 && args[1].op == cot_obj )
+              ea_t callee = e->x->obj_ea;
+              if ( callee == node.altval(DTXMSG_ALT_WAIT) // objc plugin might have set this
+                || callee == get_name_ea(BADADDR, "_objc_msgSend") )
               {
-                ea_t selea = args[1].obj_ea;
-                qstring sel;
+                const carglist_t &args = *e->a;
 
-                if ( is_strlit(get_flags(selea))
-                  && get_strlit_contents(&sel, selea, -1, STRTYPE_C)
-                  && sel == "waitForMoreData:incrementalBuffer:"
-                  // we ignore calls with a constant for the length argument, since they are likely just
-                  // reading the header block. we are only interested in calls that will ultimately return
-                  // the full serialized DTXMessage payload.
-                  && args[2].op != cot_num )
+                if ( args.size() == 4 && args[1].op == cot_obj )
                 {
-                  ea_t bpt = get_item_end(e->ea);
-                  add_bpt(bpt, 1, BPT_DEFAULT);
-                  node.altset_ea(bpt, 1, DTXMSG_ALT_BPTS);
-                  dtxmsg_deb("magic bpt: %a\n", bpt);
+                  ea_t selea = args[1].obj_ea;
+                  qstring sel;
+
+                  if ( is_strlit(get_flags(selea))
+                    && get_strlit_contents(&sel, selea, -1, STRTYPE_C)
+                    && sel == "waitForMoreData:incrementalBuffer:"
+                    // we ignore calls with a constant for the length argument, since they are likely just
+                    // reading the header block. we are only interested in calls that will ultimately return
+                    // the full serialized DTXMessage payload.
+                    && args[2].op != cot_num )
+                  {
+                    ea_t bpt = get_item_end(e->ea);
+                    add_bpt(bpt, 1, BPT_DEFAULT);
+                    node.altset_ea(bpt, 1, DTXMSG_ALT_BPTS);
+                    dtxmsg_deb("magic bpt: %a\n", bpt);
+                  }
                 }
               }
             }
+            return 0;
           }
-          return 0;
-        }
-      };
+        };
 
-      bpt_finder_t bf(node);
-      bf.apply_to_exprs(&cfunc->body, NULL);
-
-      // find the compression algorithm table
-      ea = node.altval(DTXMSG_ALT_UNCOMPRESS);
-      pfn = get_func(ea);
-      if ( pfn == NULL )
-      {
-        dtxmsg_deb("Error: no function found at %a\n", ea);
-        break;
+        bpt_finder_t bf(node);
+        bf.apply_to_exprs(&cfunc->body, NULL);
       }
-      if ( decompile(pfn, &hf) == NULL )
-      {
-        dtxmsg_deb("Error: decompilation failed. code=%d, addr=%a, err=%s\n", hf.code, hf.errea, hf.str.c_str());
-        break;
-      }
-
-      segment_t *s = get_segm_by_name("__const");
-      if ( s != NULL )
-      {
-        for ( ea = s->start_ea; ea < s->end_ea; ea = get_item_end(ea) )
-        {
-          tinfo_t tif;
-          array_type_data_t atd;
-          // looking for an array of dwords
-          if ( get_tinfo(&tif, ea)
-            && tif.is_array()
-            && tif.get_array_details(&atd)
-            && atd.elem_type.is_scalar()
-            && atd.elem_type.get_size() == 4 )
-          {
-            xrefblk_t xb;
-            for ( bool ok = xb.first_to(ea, XREF_DATA); ok; ok = xb.next_to() )
-            {
-              func_t *_pfn = get_func(xb.from);
-              if ( _pfn != NULL && _pfn->start_ea == pfn->start_ea )
-              {
-                dtxmsg_deb("compression table: %a\n", ea);
-                node.altset(DTXMSG_ALT_TABLE, ea);
-                break;
-              }
-            }
-          }
-        }
-      }
-
       break;
-    }
 
     case idb_event::allsegs_moved:
-    {
-      netnode node;
-      node.create(DTXMSG_NODE);
-      const segm_move_infos_t *smi = va_arg(va, segm_move_infos_t *);
-
-      for ( segm_move_infos_t::const_iterator i = smi->begin(); i != smi->end(); ++i )
       {
-        nodeidx_t n1 = ea2node(i->from);
-        nodeidx_t n2 = ea2node(i->to);
-        node.altshift(n1, n2, i->size, DTXMSG_ALT_BPTS);
-      }
+        netnode node;
+        node.create(DTXMSG_NODE);
+        const segm_move_infos_t *smi = va_arg(va, segm_move_infos_t *);
 
-      for ( nodeidx_t idx = node.altfirst(); idx != BADNODE; idx = node.altnext(idx) )
-      {
-        if ( idx == DTXMSG_ALT_FOOTPRINT )
-          continue;
-
-        ea_t oldea = node.altval(idx);
-        const segm_move_info_t *_smi = smi->find(oldea);
-        if ( _smi != NULL )
+        for ( segm_move_infos_t::const_iterator i = smi->begin(); i != smi->end(); ++i )
         {
-          asize_t slide = _smi->to - _smi->from;
-          node.altset(idx, oldea + slide);
+          nodeidx_t n1 = ea2node(i->from);
+          nodeidx_t n2 = ea2node(i->to);
+          node.altshift(n1, n2, i->size, DTXMSG_ALT_BPTS);
         }
-      }
 
-      print_node_info("rebased");
+        for ( nodeidx_t idx = node.altfirst(); idx != BADNODE; idx = node.altnext(idx) )
+        {
+          if ( idx == DTXMSG_ALT_FOOTPRINT )
+            continue;
+
+          ea_t oldea = node.altval(idx);
+          const segm_move_info_t *_smi = smi->find(oldea);
+          if ( _smi != NULL )
+          {
+            asize_t slide = _smi->to - _smi->from;
+            node.altset(idx, oldea + slide);
+          }
+        }
+
+        print_node_info("rebased");
+      }
       break;
-    }
 
     default:
       break;
@@ -505,9 +437,8 @@ static int idaapi init(void)
 {
   ea_t ea1 = get_name_ea(BADADDR, "-[DTXMessageParser parseMessageWithExceptionHandler:]");
   ea_t ea2 = get_name_ea(BADADDR, "-[DTXMessageParser waitForMoreData:incrementalBuffer:]");
-  ea_t ea3 = get_name_ea(BADADDR, "-[DTXBlockCompressorLibCompression uncompressBuffer:ofLength:toBuffer:withKnownUncompressedLength:usingCompressionType:]");
 
-  if ( ea1 == BADADDR || ea2 == BADADDR || ea3 == BADADDR )
+  if ( ea1 == BADADDR || ea2 == BADADDR )
   {
     dtxmsg_deb("input file does not look like the DTXConnectionServices library, skipping\n");
     return PLUGIN_SKIP;
@@ -564,7 +495,6 @@ static int idaapi init(void)
     node.altset(DTXMSG_ALT_FOOTPRINT, 1);
     node.altset(DTXMSG_ALT_PARSE, ea1);
     node.altset(DTXMSG_ALT_WAIT, ea2);
-    node.altset(DTXMSG_ALT_UNCOMPRESS, ea3);
   }
   else
   {
