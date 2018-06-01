@@ -36,9 +36,9 @@ void archive(bytevec_t *buf, CFTypeRef ref)
   @autoreleasepool
   {
     id object = (__bridge id)ref;
-    NSData *data=[NSKeyedArchiver archivedDataWithRootObject:object];
-    const void *bytes=[data bytes];
-    int length=[data length];
+    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:object];
+    const void *bytes = [data bytes];
+    int length = [data length];
     buf->append(bytes, length);
   }
 }
@@ -48,8 +48,8 @@ CFTypeRef unarchive(const uchar *buf, size_t bufsize)
 {
   @autoreleasepool
   {
-    NSData *data=[NSData dataWithBytesNoCopy:(void *)buf length:bufsize freeWhenDone:false];
-    id object=[NSKeyedUnarchiver unarchiveObjectWithData:data];
+    NSData *data = [NSData dataWithBytesNoCopy:(void *)buf length:bufsize freeWhenDone:false];
+    id object = [NSKeyedUnarchiver unarchiveObjectWithData:data];
     return (__bridge CFTypeRef)[object retain];
   }
 }
