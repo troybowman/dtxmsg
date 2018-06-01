@@ -410,8 +410,8 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
         // this function returns a pointer to the raw DTXMessage data.
         struct ida_local bpt_finder_t : public minsn_visitor_t
         {
-          netnode node;
-          bpt_finder_t(netnode _node) : node(_node) {}
+          netnode &node;
+          bpt_finder_t(netnode &_node) : node(_node) {}
           virtual int idaapi visit_minsn(void)
           {
             if ( curins->opcode == m_call )
