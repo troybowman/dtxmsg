@@ -4,7 +4,6 @@ O1 = dtxmsg_common
 include ../plugin.mak
 
 STDLIBS += -lobjc -framework Foundation -framework CoreFoundation
-POSTACTION = cp $@ /Users/troy/INSTALLERS/71/ida/ida.app/Contents/MacOS/plugins
 
 $(F)dtxmsg_common$(O): CFLAGS += -x objective-c++
 
@@ -17,6 +16,8 @@ dtxmsg_client: $(R)dtxmsg_client
 $(R)dtxmsg_client: $(F)dtxmsg_common$(O) $(F)dtxmsg_client$(O)
 	$(call link_dumb,$@ $^)
 endif
+
+POSTACTION = cp $@ /Users/troy/INSTALLERS/71/ida/ida.app/Contents/MacOS/plugins
 
 # MAKEDEP dependency list ------------------
 $(F)dtxmsg$(O)  : $(I)bitrange.hpp $(I)bytes.hpp $(I)config.hpp             \
