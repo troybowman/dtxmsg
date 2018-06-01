@@ -685,15 +685,19 @@ static void usage(const char *prog)
 {
   qeprintf("usage: %s [-v] [-d <device id>] TASK <task args>\n"
            "\n"
+           "This is a sample client application for the iOS Instruments server.\n"
+           "It is capable of rudimentary communication with the server and can\n"
+           "ask it to perform some interesting tasks.\n"
+           "\n"
            "TASK can be one of the following:\n"
-           "  proclist (print a list of running processes)\n"
-           "  applist  (print a list of installed applications)\n"
-           "  launch   (launch a given app. provide the bundle id of app to launch)\n"
-           "  kill     (kill a given process. provide the pid of the process to kill)\n"
+           "  proclist  - print a list of running processes\n"
+           "  applist   - print a list of installed applications\n"
+           "  launch    - launch a given app. provide the bundle id of the app to launch\n"
+           "  kill      - kill a given process. provide the pid of the process to kill\n"
            "\n"
            "other args:\n"
            "  -v  more verbose output\n"
-           "  -d  device id of device to connect to\n", prog);
+           "  -d  device ID. if empty, this app will use the first device it finds\n", prog);
 }
 
 //-----------------------------------------------------------------------------

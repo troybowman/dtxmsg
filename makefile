@@ -7,7 +7,7 @@ STDLIBS += -lobjc -framework Foundation -framework CoreFoundation
 
 $(F)dtxmsg_common$(O): CFLAGS += -x objective-c++
 
-# dtxmsg_client must link against dumb.o and pro.a,
+# dtxmsg_client must link against pro.a/dumb.o,
 # which are only available for __EA64__ builds
 ifdef __EA64__
 ADDITIONAL_GOALS += dtxmsg_client

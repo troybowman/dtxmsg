@@ -204,7 +204,7 @@ static bool parse_message(ea_t buf, const DTXMessageHeader &mheader)
   }
 
   // append this fragment to the incremental payload file.
-  // also note that different fragments of the same payload will
+  // also note that different fragments for the same payload will
   // have the same message identifier.
   qstring fname;
   fname.sprnt("payload_%d.bin", mheader.identifier);
@@ -237,7 +237,7 @@ static bool parse_message(ea_t buf, const DTXMessageHeader &mheader)
 //-----------------------------------------------------------------------------
 static bool handle_magic_bpt(void)
 {
-  // read the return value register
+  // read the return register
   const char *reg;
   if ( ph.id == PLFM_ARM )
     reg = inf.is_64bit() ? "X0" : "R0";
@@ -427,7 +427,7 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
                   if ( is_strlit(get_flags(selea))
                     && get_strlit_contents(&sel, selea, -1, STRTYPE_C) > 0
                     && sel == "waitForMoreData:incrementalBuffer:"
-                    // ignore calls with a constant for the length argument. they are likely just
+                    // ignore calls with a constant as the length argument. they are likely just
                     // reading the message header. we are only interested in calls that will return
                     // a pointer to the full serialized message.
                     && fi->args[2].t != mop_n )
