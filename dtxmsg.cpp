@@ -163,12 +163,18 @@ static bool format_header(qstring *out, ea_t ea, const tinfo_t &tif)
 }
 
 //-----------------------------------------------------------------------------
-static bool handle_message_fragment(ea_t buf, const DTXMessageHeader &mheader)
+static bool parse_message(ea_t buf, const DTXMessageHeader &mheader)
 {
+  // it is possible that this message is just one of many "fragments".
+  // this happens when an object is too big to be transmitted in a single message
+  // and is therefore split up across multiple messages. so, we always append the
+  // current fragment to an incremental payload file and deserialize the data only
+  // after all fragments have been read.
   ea_t fptr = buf + sizeof(mheader);
   ea_t flen = mheader.length;
 
-  // the first message fragment contains the payload header
+  // the first fragment contains the payload header.
+  // note that if a payload does not require multiple fragments, the fragmentId is 0.
   if ( mheader.fragmentId <= 1 )
   {
     tinfo_t tif;
@@ -197,13 +203,15 @@ static bool handle_message_fragment(ea_t buf, const DTXMessageHeader &mheader)
     return false;
   }
 
-  char path[MAXSTR];
-
+  // append this fragment to the incremental payload file.
+  // also note that different fragments of the same payload will
+  // have the same message identifier.
   qstring fname;
   fname.sprnt("payload_%d.bin", mheader.identifier);
+
+  char path[MAXSTR];
   qmakepath(path, sizeof(path), logdir, fname.c_str(), NULL);
 
-  // append this fragment to the incremental payload file
   FILE *payload_fp = qfopen(path, "a");
   if ( payload_fp == NULL )
   {
@@ -291,10 +299,10 @@ static bool handle_magic_bpt(void)
 
   dtxmsg_deb("message: %s\n", path);
 
-  // don't try to parse any of the message data unless instructed
+  // don't try to parse the message payload, unless instructed
   bool ok = true;
   if ( verbose )
-    ok = handle_message_fragment(buf, mheader);
+    ok = parse_message(buf, mheader);
 
   qfprintf(headers_fp, "\n");
   qflush(headers_fp);
@@ -393,7 +401,7 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
         }
 
         // add breakpoints after calls to -[DTXMessageParser waitForMoreData:incrementalBuffer:].
-        // this function will return a pointer to the raw DTXMessage data.
+        // this function returns a pointer to the raw DTXMessage data.
         struct ida_local bpt_finder_t : public minsn_visitor_t
         {
           netnode node;
@@ -413,9 +421,9 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
                   if ( is_strlit(get_flags(selea))
                     && get_strlit_contents(&sel, selea, -1, STRTYPE_C) > 0
                     && sel == "waitForMoreData:incrementalBuffer:"
-                    // we ignore calls with a constant for the length argument, since they are likely just
-                    // reading the header block. we are only interested in calls that will ultimately return
-                    // the full serialized DTXMessage payload.
+                    // ignore calls with a constant for the length argument. they are likely just
+                    // reading the message header. we are only interested in calls that will return
+                    // a pointer to the full serialized message.
                     && fi->args[2].t != mop_n )
                   {
                     ea_t bpt = get_item_end(curins->ea);
