@@ -238,10 +238,16 @@ static bool parse_message(ea_t buf, const DTXMessageHeader &mheader)
 static bool handle_magic_bpt(void)
 {
   // read the return value register
+  const char *reg;
+  if ( ph.id == PLFM_ARM )
+    reg = inf.is_64bit() ? "X0" : "R0";
+  else
+    reg = inf.is_64bit() ? "RAX" : "EAX";
+
   regval_t val;
-  if ( !get_reg_val(ph.id == PLFM_ARM ? "X0" : "RAX", &val) )
+  if ( !get_reg_val(reg, &val) )
   {
-    dtxmsg_deb("Error: failed to read value from return register\n");
+    dtxmsg_deb("Error: failed to get value of register %s\n", reg);
     return false;
   }
 
@@ -492,9 +498,9 @@ static int idaapi init(void)
   ea_t ea1 = get_name_ea(BADADDR, "-[DTXMessageParser parseMessageWithExceptionHandler:]");
   ea_t ea2 = get_name_ea(BADADDR, "-[DTXMessageParser waitForMoreData:incrementalBuffer:]");
 
-  if ( ea1 == BADADDR || ea2 == BADADDR || !inf.is_64bit() )
+  if ( ea1 == BADADDR || ea2 == BADADDR )
   {
-    dtxmsg_deb("input file does not look like the 64-bit DTXConnectionServices library, skipping\n");
+    dtxmsg_deb("input file does not look like the DTXConnectionServices library, skipping\n");
     return PLUGIN_SKIP;
   }
 
