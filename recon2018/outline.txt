@@ -1,0 +1,129 @@
+Discovering the iOS Instruments Server: Outline
+
+Troy Bowman - Hex-Rays SA
+
+About Me:
+
+
+
+Purpose:
+
+  (next)
+
+    Share what we found. We think we have uncovered an iOS utility that most
+    people don't know about, and it could prove to be very useful for
+    many other developers that work with iOS.
+
+    Also: there's a lot of busy work that has been completed.
+
+  (next)
+
+    Document all the steps we took, and every decision we made along the way.
+    This is not the first time someone has reversed iOS internals, and it won't be the
+    last. Even the minor details could be useful later.
+
+  (next)
+
+    Discuss the challenges in reversing iOS binaries (specifically Objective-C)
+    and what a developer (or IDA) does to fight back.
+
+  (next)
+
+    We think reversing iOS is cool, and hopefully you feel the same.
+
+
+Instruments:
+
+
+What We Know:
+
+  connecting to a remote process is not normal on iOS. devices are locked,
+  so you can't just create a socket and connect on an IP address/Port.
+  must go through MobileDevice.framework.
+
+
+DTXMessage:
+
+    all the information necessary to call an Objective-C message (selectors,
+    args, receiver) was crammed into a buffer somewhere. where is this data
+    coming from?
+
+    mention that just knowing the data format still doesn't tell us the
+    whole story. what if the server only responds to specific sequences of
+    commands? very hard to tell from the disassembly
+
+
+Background:
+
+  - Discuss why and how iOS restricts access to info that might be useful to a
+  developer, and how this information is delivered via privileged developer tools
+  (i.e. "services")
+
+  - Show parts of decompiled code from the developer tools that hint toward a
+  privileged server called "Instruments". this server appears to be responsible
+  for providing Xcode with sensitive information about the OS
+
+  - How do we establish communication with this server?
+  - How do we ask it for the exact information we need?
+  - How do we interpret the response?
+
+
+Plugin:
+
+  - we developed an IDA plugin that would place breakpoints in critical
+  parts of the Instruments server process, and use them to dump the binary
+  data transmitted between the server and Xcode
+
+  - show important excerpts from the plugin source
+
+  - demo the plugin in action
+  - show some hex dumps of the data
+  - point out some clues that show up in plain text
+
+
+Analysis:
+
+  - we now have access to:
+
+      1. logged network activity between Xcode/iOS
+      2. the libraries responsible for parsing this data
+      3. a reliable decompiler
+
+  It's now only a matter of time before we understand how the data is formatted.
+
+  - show the decompilation of some critical functions in Xcode/Instruments
+
+  - the code is very Objective-C heavy. discuss the difficulties of reversing Objective-C code,
+  and what exactly IDA does to facilitate that
+
+
+Solution:
+
+  - with an understanding of how information is transmitted between iOS and Xcode,
+  we can begin to write a custom client application that can communicate with
+  the Instruments server, independent of Xcode
+
+  - demo this custom app. as of this writing, the tool can successfully ask the Instruments server
+  to perform the following tasks:
+
+      1. fetch the exe path and PID of every process running on a given device
+      2. fetch a detailed description of every application installed on a given device
+      3. launch any given application (even system apps)
+      4. kill any process (even system processes)
+
+  - show excerpts of the source code that explain how a request is constructed,
+  and how a reply is interpreted
+
+
+Significance:
+
+  - the Instruments server is responsible for performing many important tasks for Xcode,
+  and we've only just scratched the surface. hopefully others in the iOS RE community
+  will take this knowledge and expand on it
+
+  - this task was a great example of the practical benefits of cracking software.
+  in other words, the payoff wasn't simply "hey look what I did", but rather the end result
+  was a fully functioning tool that can interact directly with internal iOS facilities
+  (and is likely the only tool outside of Apple that can do so)
+
+  - the practical applications of such knowledge expand far beyond the scope of this project

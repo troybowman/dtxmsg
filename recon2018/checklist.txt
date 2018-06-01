@@ -1,0 +1,12 @@
+IDA - DVTInstrumentsFoundation
+IDA - DTXConnectionServices
+
+Xcode - iOS example app
+
+ios_deploy -d 6d74bc28ba62a0e02df4dc80d80d98c1c0c68b78 usbproxy -r 22 -l 2222 &
+ios_deploy -d 6d74bc28ba62a0e02df4dc80d80d98c1c0c68b78 usbproxy -r 1234 -l 4321 &
+
+ssh -p 2222 root@localhost
+./debugserver *:1234
+  - jailbreak fix: visit https://repo.avalon-studios.de/ in safari on the device
+    explained at: https://www.youtube.com/watch?v=UIkhJqr1U7g

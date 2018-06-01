@@ -1,0 +1,4 @@
+(
+    1,
+    "com.apple.instruments.server.services.deviceinfo"
+)
