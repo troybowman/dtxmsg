@@ -719,14 +719,7 @@ static int idaapi init(void)
   if ( node.altval(DTXMSG_ALT_VERSION) == 0 )
   {
     // working with a fresh database - must perform some setup
-    uint64 version = get_qword(version_ea);
-    if ( version == 0 )
-    {
-      dtxmsg_deb("Error: failed to read version number at %a\n", version_ea);
-      return PLUGIN_SKIP;
-    }
-
-    node.altset(DTXMSG_ALT_VERSION, version);
+    node.altset(DTXMSG_ALT_VERSION, get_qword(version_ea));
 
     const char *dbgname = NULL;
     const char *exe = NULL;
@@ -850,7 +843,7 @@ static bool idaapi run(size_t)
 plugin_t PLUGIN =
 {
   IDP_INTERFACE_VERSION,
-  0,                     // plugin flags
+  PLUGIN_HIDE,           // plugin flags
   init,                  // initialize
   term,                  // terminate. this pointer may be NULL.
   run,                   // invoke plugin
