@@ -235,23 +235,23 @@ static bool parse_message(ea_t buf, const DTXMessageHeader &mheader)
 }
 
 //-----------------------------------------------------------------------------
-static bool handle_magic_bpt(void)
+static bool handle_dtxmsg_bpt(void)
 {
   // read the return register
-  const char *reg;
-  if ( ph.id == PLFM_ARM )
-    reg = inf.is_64bit() ? "X0" : "R0";
-  else
-    reg = inf.is_64bit() ? "RAX" : "EAX";
-
   regval_t val;
+  const char *reg = ph.id == PLFM_ARM ? "X0" : "RAX";
   if ( !get_reg_val(reg, &val) )
   {
     dtxmsg_deb("Error: failed to get value of register %s\n", reg);
     return false;
   }
 
-  ea_t buf = val.ival; // pointer to the message buffer
+  // pointer to the message buffer
+  ea_t buf = val.ival;
+
+  // if buffer is NULL, just ignore it
+  if ( buf == 0 )
+    return true;
 
   tinfo_t tif;
   if ( !tif.get_named_type(NULL, "DTXMessageHeader") )
@@ -335,7 +335,7 @@ static ssize_t idaapi dbg_callback(void *, int notification_code, va_list va)
         if ( verbose )
           dtxmsg_deb("magic bpt: %a, tid=%d\n", bpt, tid);
 
-        if ( !handle_magic_bpt() )
+        if ( !handle_dtxmsg_bpt() )
           break;
 
         // resume process
@@ -352,21 +352,255 @@ static ssize_t idaapi dbg_callback(void *, int notification_code, va_list va)
 }
 
 //-----------------------------------------------------------------------------
+static void set_dtxmsg_bpt(netnode &node, ea_t ea)
+{
+  if ( !add_bpt(ea, 1, BPT_DEFAULT) )
+  {
+    dtxmsg_deb("Error: failed to add breakpoint at %a\n", ea);
+    return;
+  }
+  node.altset_ea(ea, 1, DTXMSG_ALT_BPTS);
+  dtxmsg_deb("magic bpt: %a\n", ea);
+}
+
+//-----------------------------------------------------------------------------
+static void set_dtxmsg_bpts_xcode8(netnode &node)
+{
+  const char *method = "-[DTXMessageParser parseMessageWithExceptionHandler:]";
+  ea_t ea = get_name_ea(BADADDR, method);
+  if ( ea == BADADDR )
+  {
+    dtxmsg_deb("failed to find %s in the database\n", method);
+    return;
+  }
+
+  func_t *pfn = get_func(ea);
+  if ( pfn == NULL )
+  {
+    dtxmsg_deb("Error: no function found at %a\n", ea);
+    return;
+  }
+
+  mba_ranges_t mbr(pfn);
+  hexrays_failure_t hf;
+  mbl_array_t *mba = gen_microcode(
+          mbr,
+          &hf,
+          NULL,
+          DECOMP_NO_WAIT,
+          MMAT_GLBOPT1);
+
+  if ( mba == NULL )
+  {
+    dtxmsg_deb("microcode failure at %a: %s\n", hf.errea, hf.desc().c_str());
+    return;
+  }
+
+  // add breakpoints after calls to -[DTXMessageParser waitForMoreData:incrementalBuffer:].
+  // this function returns a pointer to the raw DTXMessage data.
+  struct ida_local bpt_finder_t : public minsn_visitor_t
+  {
+    netnode &node;
+    bpt_finder_t(netnode &_node) : node(_node) {}
+    virtual int idaapi visit_minsn(void)
+    {
+      if ( curins->opcode == m_call )
+      {
+        const mfuncinfo_t *fi = curins->d.f;
+        if ( fi->args.size() == 4 && fi->callee == get_name_ea(BADADDR, "_objc_msgSend") )
+        {
+          const mfuncarg_t &selarg = fi->args[1];
+          if ( selarg.t == mop_a || selarg.a->t == mop_v )
+          {
+            qstring sel;
+            ea_t selea = selarg.a->g;
+            if ( is_strlit(get_flags(selea))
+              && get_strlit_contents(&sel, selea, -1, STRTYPE_C) > 0
+              && sel == "waitForMoreData:incrementalBuffer:"
+              // ignore calls with a constant as the length argument. they are likely just
+              // reading the message header. we are only interested in calls that will return
+              // a pointer to the full serialized message.
+              && fi->args[2].t != mop_n )
+            {
+              set_dtxmsg_bpt(node, get_item_end(curins->ea));
+            }
+          }
+        }
+      }
+      return 0;
+    }
+  };
+
+  bpt_finder_t bf(node);
+  mba->for_all_insns(bf);
+
+  delete mba;
+}
+
+//-----------------------------------------------------------------------------
+static const lvar_t *find_retained_block(mbl_array_t *mba)
+{
+  ea_t retain_block = get_name_ea(BADADDR, "_objc_retainBlock");
+  if ( retain_block == BADADDR )
+    return NULL;
+
+  // find a variable that is initialized like: v1 = objc_retainBlock(&block);
+  for ( mblock_t *b = mba->blocks; b != NULL; b = b->nextb )
+  {
+    for ( minsn_t *m = b->head; m != NULL; m = m->next )
+    {
+      if ( m->opcode == m_mov && m->d.t == mop_l && m->l.t == mop_d )
+      {
+        const minsn_t *d = m->l.d;
+        if ( d->opcode == m_call )
+        {
+          const mfuncinfo_t *fi = d->d.f;
+          if ( fi->callee == retain_block )
+          {
+            // found a retained block
+            const lvar_t *v = &m->d.l->var();
+
+            // if the code later assigns this variable to another one,
+            // the new variable takes priority
+            for ( minsn_t *n = m->next; n != NULL; n = n->next )
+            {
+              if ( n->opcode == m_mov
+                && n->d.t == mop_l
+                && n->l.t == mop_l
+                && n->l.l->var() == *v )
+              {
+                v = &n->d.l->var();
+              }
+            }
+
+            return v;
+          }
+        }
+      }
+    }
+  }
+
+  return NULL;
+}
+
+//-----------------------------------------------------------------------------
+static void set_dtxmsg_bpts_xcode9(netnode &node)
+{
+  const char *method = "-[DTXMessageParser parseIncomingBytes:length:]";
+  ea_t ea = get_name_ea(BADADDR, method);
+  if ( ea == BADADDR )
+  {
+    dtxmsg_deb("Error: failed to find %s in the database\n", method);
+    return;
+  }
+
+  func_t *pfn = get_func(ea);
+  if ( pfn == NULL )
+  {
+    dtxmsg_deb("Error: no function found at %a\n", ea);
+    return;
+  }
+
+  // in Xcode 9, -[DTXMessageParser parseMessageWithExceptionHandler:] was replaced
+  // with a block function.
+  func_t *parser_block = NULL;
+
+  func_item_iterator_t fii;
+  for ( bool ok = fii.set(pfn); ok; ok = fii.next_addr() )
+  {
+    ea_t xref = get_first_dref_from(fii.current());
+    if ( xref != BADADDR )
+    {
+      func_t *_pfn = get_func(xref);
+      if ( _pfn != NULL && get_name(xref).find("block_invoke") != qstring::npos )
+      {
+        parser_block = _pfn;
+        break;
+      }
+    }
+  }
+
+  if ( parser_block == NULL )
+  {
+    dtxmsg_deb("Error: expected a block function in %s\n", method);
+    return;
+  }
+
+  mba_ranges_t mbr(parser_block);
+  hexrays_failure_t hf;
+  mbl_array_t *mba = gen_microcode(
+          mbr,
+          &hf,
+          NULL,
+          DECOMP_NO_WAIT,
+          MMAT_LVARS);
+
+  if ( mba == NULL )
+  {
+    dtxmsg_deb("microcode failure at %a: %s\n", hf.errea, hf.desc().c_str());
+    return;
+  }
+
+  // Xcode 9 also replaced -[DTXMessageParser waitForMoreData:incrementalBuffer:]
+  // with a block function. the return value of this block function will be
+  // a pointer to the serialized message data. we must find all instances where
+  // it is invoked.
+  const lvar_t *bvar = find_retained_block(mba);
+  if ( bvar == NULL )
+  {
+    dtxmsg_deb("Error: expected to find objc_retainBlock() in function %a\n", parser_block->start_ea);
+    return;
+  }
+
+  struct ida_local bpt_finder_t : public minsn_visitor_t
+  {
+    netnode &node;
+    const lvar_t &bvar;
+
+    bpt_finder_t(netnode &_node, const lvar_t &_bvar) : node(_node), bvar(_bvar) {}
+
+    virtual int idaapi visit_minsn(void)
+    {
+      if ( curins->opcode == m_icall )
+      {
+        const mfuncinfo_t *fi = curins->d.f;
+        // if the block variable is the first argument for an indirect call,
+        // this is likely a call to the invoke function
+        if ( fi->args.size() >= 2
+          && fi->args[0].t == mop_l
+          && fi->args[0].l->var() == bvar
+          // ignore calls with a constant as the length argument. they are likely just
+          // reading the message header. we are only interested in calls that will return
+          // a pointer to the full serialized message
+          && fi->args[1].t != mop_n )
+        {
+          set_dtxmsg_bpt(node, get_item_end(curins->ea));
+        }
+      }
+      return 0;
+    }
+  };
+
+  bpt_finder_t bf(node, *bvar);
+  mba->for_all_insns(bf);
+
+  delete mba;
+}
+
+//-----------------------------------------------------------------------------
 static void print_node_info(const char *pfx)
 {
   netnode node;
   node.create(DTXMSG_NODE);
 
   dtxmsg_deb("node info: %s\n", pfx);
-  dtxmsg_deb("  footprint:  %a\n", node.altval(DTXMSG_ALT_FOOTPRINT));
-  dtxmsg_deb("  parse:      %a\n", node.altval(DTXMSG_ALT_PARSE));
-  dtxmsg_deb("  wait:       %a\n", node.altval(DTXMSG_ALT_WAIT));
+  dtxmsg_deb("  dtx version: %a\n", node.altval(DTXMSG_ALT_VERSION));
 
   for ( nodeidx_t idx = node.altfirst(DTXMSG_ALT_BPTS);
         idx != BADNODE;
         idx = node.altnext(idx, DTXMSG_ALT_BPTS) )
   {
-    dtxmsg_deb("  magic bpt:  %a\n", node2ea(idx));
+    dtxmsg_deb("  magic bpt:   %a\n", node2ea(idx));
   }
 }
 
@@ -383,74 +617,15 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
         netnode node;
         node.create(DTXMSG_NODE);
 
-        ea_t ea = node.altval(DTXMSG_ALT_PARSE);
-        func_t *pfn = get_func(ea);
-        if ( pfn == NULL )
-        {
-          dtxmsg_deb("Error: no function found at %a\n", ea);
-          break;
-        }
-
-        mba_ranges_t mbr(pfn);
-        hexrays_failure_t hf;
-        mbl_array_t *mba = gen_microcode(
-                mbr,
-                &hf,
-                NULL,
-                DECOMP_NO_WAIT,
-                MMAT_GLBOPT1);
-
-        if ( mba == NULL )
-        {
-          dtxmsg_deb("microcode failure at %a: %s\n", hf.errea, hf.desc().c_str());
-          return false;
-        }
-
-        // add breakpoints after calls to -[DTXMessageParser waitForMoreData:incrementalBuffer:].
-        // this function returns a pointer to the raw DTXMessage data.
-        struct ida_local bpt_finder_t : public minsn_visitor_t
-        {
-          netnode &node;
-          bpt_finder_t(netnode &_node) : node(_node) {}
-          virtual int idaapi visit_minsn(void)
-          {
-            if ( curins->opcode == m_call )
-            {
-              const mfuncinfo_t *fi = curins->d.f;
-              if ( fi->args.size() == 4 && fi->callee == get_name_ea(BADADDR, "_objc_msgSend") )
-              {
-                const mfuncarg_t &selarg = fi->args[1];
-                if ( selarg.t == mop_a || selarg.a->t == mop_v )
-                {
-                  qstring sel;
-                  ea_t selea = selarg.a->g;
-                  if ( is_strlit(get_flags(selea))
-                    && get_strlit_contents(&sel, selea, -1, STRTYPE_C) > 0
-                    && sel == "waitForMoreData:incrementalBuffer:"
-                    // ignore calls with a constant as the length argument. they are likely just
-                    // reading the message header. we are only interested in calls that will return
-                    // a pointer to the full serialized message.
-                    && fi->args[2].t != mop_n )
-                  {
-                    ea_t bpt = get_item_end(curins->ea);
-                    add_bpt(bpt, 1, BPT_DEFAULT);
-                    node.altset_ea(bpt, 1, DTXMSG_ALT_BPTS);
-                    dtxmsg_deb("magic bpt: %a\n", bpt);
-                  }
-                }
-              }
-            }
-            return 0;
-          }
-        };
-
-        bpt_finder_t bf(node);
-        mba->for_all_insns(bf);
-
-        delete mba;
+        // sometime around Xcode 9, Apple decided to change everything
+        uint64 version = node.altval(DTXMSG_ALT_VERSION);
+        if ( version < 0x40EED00000000000LL )
+          set_dtxmsg_bpts_xcode8(node);
+        else
+          set_dtxmsg_bpts_xcode9(node);
 
         if ( node.altfirst(DTXMSG_ALT_BPTS) == BADNODE )
-          warning(DTXMSG_DEB_PFX "failed to detect any critical breakpoints!");
+          warning(DTXMSG_DEB_PFX " failed to detect any critical breakpoints!");
       }
       break;
 
@@ -467,21 +642,52 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
           node.altshift(n1, n2, i->size, DTXMSG_ALT_BPTS);
         }
 
-        for ( nodeidx_t idx = node.altfirst(); idx != BADNODE; idx = node.altnext(idx) )
-        {
-          if ( idx == DTXMSG_ALT_FOOTPRINT )
-            continue;
-
-          ea_t oldea = node.altval(idx);
-          const segm_move_info_t *_smi = smi->find(oldea);
-          if ( _smi != NULL )
-          {
-            asize_t slide = _smi->to - _smi->from;
-            node.altset(idx, oldea + slide);
-          }
-        }
-
         print_node_info("rebased");
+      }
+      break;
+
+    default:
+      break;
+  }
+
+  return 0;
+}
+
+//-----------------------------------------------------------------------------
+static ssize_t idaapi ui_callback(void *, int code, va_list)
+{
+  switch ( code )
+  {
+    case ui_ready_to_run:
+      {
+        // it is possible that struct DTXMessageHeader was encoded in the objc types.
+        // we overwrite it with our own struct that has better member names.
+        static const char *decls =
+          "struct DTXMessageHeader        \n"
+          "{                              \n"
+          "  uint32_t magic;              \n"
+          "  uint32_t cb;                 \n"
+          "  uint16_t fragmentId;         \n"
+          "  uint16_t fragmentCount;      \n"
+          "  uint32_t length;             \n"
+          "  uint32_t identifier;         \n"
+          "  uint32_t conversationIndex;  \n"
+          "  uint32_t channelCode;        \n"
+          "  uint32_t expectsReply;       \n"
+          "};                             \n"
+          "struct DTXMessagePayloadHeader \n"
+          "{                              \n"
+          "  uint32_t flags;              \n"
+          "  uint32_t auxiliaryLength;    \n"
+          "  uint64_t totalLength;        \n"
+          "};                             \n";
+
+        if ( h2ti(NULL, NULL, decls, HTI_DCL, NULL, NULL, msg) != 0
+          || import_type(NULL, -1, "DTXMessageHeader") == BADNODE
+          || import_type(NULL, -1, "DTXMessagePayloadHeader") == BADNODE )
+        {
+          dtxmsg_deb("Error: failed to import DTXMessage helper types\n");
+        }
       }
       break;
 
@@ -495,28 +701,33 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
 //-----------------------------------------------------------------------------
 static int idaapi init(void)
 {
-  ea_t ea1 = get_name_ea(BADADDR, "-[DTXMessageParser parseMessageWithExceptionHandler:]");
-  ea_t ea2 = get_name_ea(BADADDR, "-[DTXMessageParser waitForMoreData:incrementalBuffer:]");
-
-  if ( ea1 == BADADDR || ea2 == BADADDR )
+  ea_t version_ea = get_name_ea(BADADDR, "_DTXConnectionServicesVersionNumber");
+  if ( version_ea == BADADDR )
   {
-    dtxmsg_deb("input file does not look like the DTXConnectionServices library, skipping\n");
+    dtxmsg_deb("input file does not look the DTXConnectionServices library, skipping\n");
     return PLUGIN_SKIP;
   }
 
   if ( !init_hexrays_plugin() )
   {
-    warning("AUTOHIDE DATABASE\n"
-            "The hexrays decompiler is not available. The dtxmsg plugin requires the decompiler to detect\n"
-            "critical pieces of logic in -[DTXMessageParser parseMessageWithExceptionHandler:] and set\n"
-            "the proper breakpoints. Without the decompiler, you will have to set these breakpoints manually.\n");
+    dtxmsg_deb("Error: this plugin requires the hexrays decompiler!\n");
+    return PLUGIN_SKIP;
   }
 
   netnode node;
   node.create(DTXMSG_NODE);
-  if ( node.altval(DTXMSG_ALT_FOOTPRINT) == 0 )
+  if ( node.altval(DTXMSG_ALT_VERSION) == 0 )
   {
     // working with a fresh database - must perform some setup
+    uint64 version = get_qword(version_ea);
+    if ( version == 0 )
+    {
+      dtxmsg_deb("Error: failed to read version number at %a\n", version_ea);
+      return PLUGIN_SKIP;
+    }
+
+    node.altset(DTXMSG_ALT_VERSION, version);
+
     const char *dbgname = NULL;
     const char *exe = NULL;
     const char *lib = NULL;
@@ -551,43 +762,11 @@ static int idaapi init(void)
 
     set_process_options(exe, NULL, NULL, "localhost", NULL, port);
     set_root_filename(lib);
-
-    node.altset(DTXMSG_ALT_FOOTPRINT, 1);
-    node.altset(DTXMSG_ALT_PARSE, ea1);
-    node.altset(DTXMSG_ALT_WAIT, ea2);
   }
   else
   {
     // already configured the debugging environment
     print_node_info("saved");
-  }
-
-  static const char *decls =
-    "struct DTXMessageHeader        \n"
-    "{                              \n"
-    "  uint32_t magic;              \n"
-    "  uint32_t cb;                 \n"
-    "  uint16_t fragmentId;         \n"
-    "  uint16_t fragmentCount;      \n"
-    "  uint32_t length;             \n"
-    "  uint32_t identifier;         \n"
-    "  uint32_t conversationIndex;  \n"
-    "  uint32_t channelCode;        \n"
-    "  uint32_t expectsReply;       \n"
-    "};                             \n"
-    "struct DTXMessagePayloadHeader \n"
-    "{                              \n"
-    "  uint32_t flags;              \n"
-    "  uint32_t auxiliaryLength;    \n"
-    "  uint64_t totalLength;        \n"
-    "};                             \n";
-
-  if ( parse_decls(NULL, decls, NULL, HTI_DCL) != 0
-    || import_type(NULL, -1, "DTXMessageHeader") == BADNODE
-    || import_type(NULL, -1, "DTXMessagePayloadHeader") == BADNODE )
-  {
-    dtxmsg_deb("Error: failed to import DTXMessage helper types\n");
-    return PLUGIN_SKIP;
   }
 
   qtmpnam(logdir, sizeof(logdir));
@@ -634,8 +813,9 @@ static int idaapi init(void)
     }
   }
 
-  hook_to_notification_point(HT_DBG, dbg_callback);
+  hook_to_notification_point(HT_UI,  ui_callback);
   hook_to_notification_point(HT_IDB, idb_callback);
+  hook_to_notification_point(HT_DBG, dbg_callback);
 
   return PLUGIN_KEEP;
 }
@@ -643,8 +823,9 @@ static int idaapi init(void)
 //-----------------------------------------------------------------------------
 static void idaapi term(void)
 {
-  unhook_from_notification_point(HT_DBG, dbg_callback);
+  unhook_from_notification_point(HT_UI,  ui_callback);
   unhook_from_notification_point(HT_IDB, idb_callback);
+  unhook_from_notification_point(HT_DBG, dbg_callback);
 
   if ( headers_fp != NULL )
   {

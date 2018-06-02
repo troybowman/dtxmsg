@@ -5,11 +5,9 @@
 #include <pro.h>
 #include <kernwin.hpp>
 
-#define DTXMSG_NODE "$ dtxmsg"
-#define DTXMSG_ALT_FOOTPRINT  0  // has this plugin already operated on the current database?
-#define DTXMSG_ALT_PARSE      1  // ea of -[DTXMessageParser parseMessageWithExceptionHandler:]
-#define DTXMSG_ALT_WAIT       2  // ea of -[DTXMessageParser waitForMoreData:incrementalBuffer:]
-#define DTXMSG_ALT_BPTS      'B' // array of magic bpt eas - for inspecting incoming packets
+#define DTXMSG_NODE "$ dtxmsg" // stores internal plugin data
+#define DTXMSG_ALT_VERSION  0  // DTXConnectionServices library version
+#define DTXMSG_ALT_BPTS    'B' // altval_ea: array of bpt eas for inspecting incoming packets
 
 #define DTXMSG_DEB_PFX "DTXMSG: "
 
