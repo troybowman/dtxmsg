@@ -22,3 +22,6 @@ alias dtx12='  $IDA71/ida/ida.app/Contents/MacOS/ida64             -o/tmp/dtx12 
 alias dtx12v=' $IDA71/ida/ida.app/Contents/MacOS/ida64 -Odtxmsg:v  -o/tmp/dtx12v $DTXMSG/idbs/osx/10.12/DTXConnectionServices'
 alias dtx13='  $IDA71/ida/ida.app/Contents/MacOS/ida64             -o/tmp/dtx13  $DTXMSG/idbs/osx/10.13/DTXConnectionServices'
 alias dtx13v=' $IDA71/ida/ida.app/Contents/MacOS/ida64 -Odtxmsg:v  -o/tmp/dtx13v $DTXMSG/idbs/osx/10.13/DTXConnectionServices'
+
+alias srv='$IDA71/ida/ida.app/Contents/MacOS/dbgsrv/mac_server64 &'
+alias srv32='$IDA71/ida/ida.app/Contents/MacOS/dbgsrv/mac_server &'
