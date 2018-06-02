@@ -1,5 +1,5 @@
 
-# currently this plugin can only be built with __EA64__=1.
+# currently this plugin can only build with __EA64__=1.
 # this is for two reasons:
 #   1. the DTXConnectionServices library is only available in 64-bit for both OSX and iOS
 #      (at least for all versions I've seen), so for now the plugin assumes 64-bit
@@ -36,10 +36,10 @@ $(F)dtxmsg$(O)  : $(I)bitrange.hpp $(I)bytes.hpp $(I)config.hpp             \
 	          $(I)range.hpp $(I)segment.hpp $(I)struct.hpp              \
 	          $(I)typeinf.hpp $(I)ua.hpp $(I)xref.hpp dtxmsg.cpp        \
 	          dtxmsg.h dtxmsg_common.h
-$(F)dtxmsg_client$(O): $(I)err.h $(I)fpro.h $(I)llong.hpp $(I)pro.h         \
-	          dtxmsg_client.cpp dtxmsg_client.h dtxmsg_common.h
 $(F)dtxmsg_common$(O): $(I)llong.hpp $(I)pro.h dtxmsg_common.cpp            \
 	          dtxmsg_common.h
+$(F)dtxmsg_client$(O): $(I)err.h $(I)fpro.h $(I)llong.hpp $(I)pro.h         \
+	          dtxmsg_client.cpp dtxmsg_client.h dtxmsg_common.h
 
 else # __EA64__
 
