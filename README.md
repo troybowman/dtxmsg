@@ -64,10 +64,10 @@ received by the iOS Instruments Server when Xcode queries the process list
    $ ios_deploy -d <device id> usbproxy -r 1234 -l 4321 &
    $ ssh -p 2222 root@localhost
    Connected to port 22 on device
-   iPhone-6-jailbroken:~ root$ ps aux | grep DTServiceHub
+   iPhone-6-jailbroken:~ root# ps aux | grep DTServiceHub
    root           11451   0.0  0.5   712144  10960   ??  Ss   Tue04PM   0:02.91 /Developer/Library/PrivateFrameworks/DVTInstrumentsFoundation.framework/DTServiceHub
-   iPhone-6-jailbroken:~ root$ ./debugserver *:1234
-   debugserver-@()PROGRAM:debugserver  PROJECT:debugserver-340.3.124 for arm64.
+   iPhone-6-jailbroken:~ root# ./debugserver *:1234
+   debugserver-@(#)PROGRAM:debugserver  PROJECT:debugserver-340.3.124 for arm64.
    Listening to port 1234 for a connection from *...
 
    ```
