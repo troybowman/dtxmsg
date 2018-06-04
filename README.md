@@ -80,36 +80,30 @@ received by the iOS Instruments Server when Xcode queries the process list
    DEVICE_ID = "<your device's ID>"
    ```
 
-5. Open DTXConnectionServices in IDA:
+5. Run the plugin in IDA:
    ```
    $ hdiutil mount /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/DeviceSupport/<your device's iOS version>/DeveloperDiskImage.dmg
-   $ $IDA_INSTALL_DIR/ida.app/Contents/MacOS/ida64 -Odtxmsg:v -o/tmp/dtxmsg.i64 /Volumes/DeveloperDiskImage/Library/PrivateFrameworks/DTXConnectionServices.framework/DTXConnectionServices
+   $ mkdir /tmp/dtxmsg
+   $ $IDA_INSTALL_DIR/ida.app/Contents/MacOS/ida64 -Odtxmsg:11451:/tmp/dtxmsg:v -o/tmp/dtxmsg/DTXConnectionServices.i64 -L/tmp/dtxmsg/ida.log /Volumes/DeveloperDiskImage/Library/PrivateFrameworks/DTXConnectionServices.framework/DTXConnectionServices
    ```
-   and wait for IDA to finish the analysis. If dtxmsg successfully initialized, it will print some messages to the console:
-   ```
-   DTXMSG: logging header info to: /tmp/ida17244.tmp/headers.log
-   DTXMSG: magic bpt: 16234
-   DTXMSG: magic bpt: 1631C
-   ```
-   Also note that we use option -Odtxmsg:v to enable verbose mode. This will instruct dtxmsg to not only log messages,
-   but also try to decode them and print the result a file in plain text.
+   Note the plugin options: -Odtxmsg:11451:/tmp/dtxmsg:v
+   * 11451 = PID of process to attach to
+   * /tmp/dtxmsg = directory where messages will be logged
+   * v = enable verbose mode. deserialize the captured messages and print the results to a file in plain text
 
-6. Run this IDC command in IDA:
-   ```
-   attach_process(11451, -1)
-   ```
-   and wait for IDA to attach to the Instruments server process. Then press F9 to let the process run freely.
+   If the plugin initializes successfully, it will automatically attach to the given PID and allow the process to run idle,
+   waiting for incoming messages.
 
-7. Go back to Xcode, and select menu Debug>Attach to Process. If dtxmsg was able to intercept communications,
+6. Go back to Xcode, and select menu Debug>Attach to Process. If dtxmsg was able to intercept communications,
    it will print some messages to the console:
    ```
-   DTXMSG: message: /tmp/ida17244.tmp/dtxmsg_1_0.bin
-   DTXMSG: message: /tmp/ida17244.tmp/dtxmsg_2_0.bin
-   DTXMSG: message: /tmp/ida17244.tmp/dtxmsg_3_0.bin
-   DTXMSG: message: /tmp/ida17244.tmp/dtxmsg_4_0.bin
-   DTXMSG: message: /tmp/ida17244.tmp/dtxmsg_5_0.bin
+   DTXMSG: message: /tmp/dtxmsg/dtxmsg_1_0.bin
+   DTXMSG: message: /tmp/dtxmsg/dtxmsg_2_0.bin
+   DTXMSG: message: /tmp/dtxmsg/dtxmsg_3_0.bin
+   DTXMSG: message: /tmp/dtxmsg/dtxmsg_4_0.bin
+   DTXMSG: message: /tmp/dtxmsg/dtxmsg_5_0.bin
    ```
-   There should also be several .txt files in the same directory that contain the decoded data.
+   There will also be several .txt files in the same directory that contain the decoded data.
 
 ## dtxmsg\_client
 

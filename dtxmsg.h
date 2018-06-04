@@ -12,6 +12,12 @@
 #define DTXMSG_DEB_PFX "DTXMSG: "
 
 //-----------------------------------------------------------------------------
+enum dtxmsg_run_code_t
+{
+  dtxmsg_attach = 0
+};
+
+//-----------------------------------------------------------------------------
 THREAD_SAFE AS_PRINTF(1, 0) void dtxmsg_vdeb(const char *format, va_list va)
 {
   qstring buf(DTXMSG_DEB_PFX);
