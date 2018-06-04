@@ -22,9 +22,9 @@ The plugin can also decode these messages and print the contents to a file in pl
 
 In order to build and run dtxmsg, you must have access to the following:
 
-  * IDA 7.0 or later, with decompiler support
-  * IDA SDK 7.0 or later
-  * hexrays\_sdk 7.0 or later
+  * IDA 7.1 or later, with decompiler support
+  * IDA SDK 7.1 or later
+  * hexrays\_sdk 7.1 or later
   * a jailbroken iOS device
   * a patched iOS [debugserver][1]
   * OSX with Xcode installed
