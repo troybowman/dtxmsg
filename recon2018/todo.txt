@@ -1,5 +1,0 @@
- - request vacation days
- - US Prepaid SIM card for Igor
- - size limit for send_message()
- - README for dtxmsg
- - test plugin with Xcode again

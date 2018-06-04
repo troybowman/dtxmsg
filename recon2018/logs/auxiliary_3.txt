@@ -1,4 +1,0 @@
-(
-    2,
-    "com.apple.instruments.server.services.device.applictionListing"
-)

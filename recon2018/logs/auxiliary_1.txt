@@ -1,6 +1,0 @@
-(
-        {
-        "com.apple.private.DTXBlockCompression" = 2;
-        "com.apple.private.DTXConnection" = 1;
-    }
-)

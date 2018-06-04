@@ -1,3 +1,0 @@
-DTXConnectionServices for iOS
-IDEiPhoneSupport for x64
-Calendar app from Alex
