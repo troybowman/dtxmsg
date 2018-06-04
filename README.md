@@ -5,12 +5,11 @@ This is an IDA plugin that helped me reverse-engineer the DTXConnectionServices 
 ## Overview
 
 DTXConnectionServices is a framework developed by Apple that facilitates interoperability
-between iOS and OSX. It is notably used to transmit debugging statistics between the
+between iOS and OSX.
+It is notably used to transmit debugging statistics between the
 iOS Instruments Server and Xcode.
 
-The goal of this plugin is to help uncover how this communication mechanism works,
-in order to develop applications capable of communicating with the iOS Instruments Server
-without the assistance of Xcode.
+The goal of this plugin is to help uncover how this communication mechanism works.
 
 ## What does it do?
 
@@ -24,11 +23,11 @@ The plugin can also decode these messages and print the contents to a file in pl
 
 ## dtxmsg\_client
 
-Also included in this project is a standalone application that is able to communicate
-with the iOS instruments server independently. It serves as an example of how to
-"speak the language" of the DTXConnectionServices framework.
+This project includes a standalone application that can communicate with the iOS Instruments
+Server independently. It serves as an example of how to "speak the language"
+of the DTXConnectionServices framework.
 
-dtxmsg\_client is able to perform some interesting tasks with a given iOS device:
+dtxmsg\_client can perform some interesting tasks with a given iOS device:
 
   * fetch a list of running process
   * fetch a list of installed applications
