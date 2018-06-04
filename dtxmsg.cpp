@@ -459,7 +459,6 @@ static const lvar_t *find_retained_block(mbl_array_t *mba)
           {
             // found a retained block
             const lvar_t *v = &m->d.l->var();
-
             // if the code later assigns this variable to another one,
             // the new variable takes priority
             for ( minsn_t *n = m->next; n != NULL; n = n->next )
@@ -472,7 +471,6 @@ static const lvar_t *find_retained_block(mbl_array_t *mba)
                 v = &n->d.l->var();
               }
             }
-
             return v;
           }
         }
