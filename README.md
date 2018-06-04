@@ -45,7 +45,6 @@ $ cd $IDASDK/plugins
 $ git clone https://github.com/troybowman/dtxmsg
 $ cd dtxmsg
 $ __EA64__=1 $IDASDK/bin/idamake.pl
-
 ```
 
 ## Run
@@ -109,7 +108,6 @@ received by the iOS Instruments Server when Xcode queries the process list
    DTXMSG: message: /tmp/ida17244.tmp/dtxmsg_3_0.bin
    DTXMSG: message: /tmp/ida17244.tmp/dtxmsg_4_0.bin
    DTXMSG: message: /tmp/ida17244.tmp/dtxmsg_5_0.bin
-
    ```
    There should also be several .txt files in the same directory that contain the decoded data.
 
