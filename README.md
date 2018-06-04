@@ -69,7 +69,6 @@ received by the iOS Instruments Server when Xcode queries the process list
    iPhone-6-jailbroken:~ root# ./debugserver *:1234
    debugserver-@(#)PROGRAM:debugserver  PROJECT:debugserver-340.3.124 for arm64.
    Listening to port 1234 for a connection from *...
-
    ```
    Note the PID of the application DTServiceHub (11451). This is the Instruments Server process.
    If this process is not running, go to your Xcode window and select menu Debug>Attach to process.
@@ -86,7 +85,6 @@ received by the iOS Instruments Server when Xcode queries the process list
    ```
    $ hdiutil mount /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/DeviceSupport/<your device's iOS version>/DeveloperDiskImage.dmg
    $ $IDA_INSTALL_DIR/ida.app/Contents/MacOS/ida64 -Odtxmsg:v -o/tmp/dtxmsg.i64 /Volumes/DeveloperDiskImage/Library/PrivateFrameworks/DTXConnectionServices.framework/DTXConnectionServices
-
    ```
    and wait for IDA to finish the analysis. If dtxmsg successfully initialized, it will print some messages to the console:
    ```
