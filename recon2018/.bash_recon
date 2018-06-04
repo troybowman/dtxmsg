@@ -1,5 +1,6 @@
 export IDA71='/Users/troy/installers/71'
 export DTXMSG='/Users/troy/installers/71/sdk/plugins/dtxmsg'
+export IDA_INSTALL_DIR='/Users/troy/installers/71/ida'
 
 alias cd71='cd $IDA71'
 alias cdtx='cd $DTXMSG'

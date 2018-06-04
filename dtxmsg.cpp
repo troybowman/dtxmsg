@@ -11,8 +11,8 @@
 #include <hexrays.hpp>
 #include "dtxmsg.h"
 
-static FILE *headers_fp = NULL;
 static char logdir[QMAXPATH];
+static FILE *headers_fp = NULL;
 static bool verbose = false;
 hexdsp_t *hexdsp = NULL;
 
@@ -306,9 +306,7 @@ static bool handle_dtxmsg_bpt(void)
   dtxmsg_deb("message: %s\n", path);
 
   // don't try to parse the message payload, unless instructed
-  bool ok = true;
-  if ( verbose )
-    ok = parse_message(buf, mheader);
+  bool ok = !verbose || parse_message(buf, mheader);
 
   qfprintf(headers_fp, "\n");
   qflush(headers_fp);

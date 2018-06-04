@@ -15,8 +15,8 @@ include ../plugin.mak
 
 STDLIBS += -lobjc -framework Foundation -framework CoreFoundation
 
-ifneq ($(IDA71),)
-POSTACTION = cp $@ $(IDA71)/ida/ida.app/Contents/MacOS/plugins
+ifneq ($(IDA_INSTALL_DIR),)
+POSTACTION = cp $@ $(IDA_INSTALL_DIR)/ida.app/Contents/MacOS/plugins
 endif
 
 $(F)dtxmsg_common$(O): CFLAGS += -x objective-c++
