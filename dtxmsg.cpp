@@ -18,7 +18,7 @@ static pid_t pid = 0;
 hexdsp_t *hexdsp = NULL;
 
 //-----------------------------------------------------------------------------
-static bool idaapi run(size_t code);
+static bool idaapi run(size_t code = 0);
 
 //-----------------------------------------------------------------------------
 // try to parse a serialized object and print it to a file in plain text
@@ -624,7 +624,7 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
         else
           set_dtxmsg_bpts_xcode9(node);
 
-        run(dtxmsg_attach);
+        run();
       }
       break;
 
@@ -691,7 +691,7 @@ static ssize_t idaapi ui_callback(void *, int code, va_list)
         // try to run the plugin now. if loading a new file, it is too early
         // to run the plugin because breakpoints have not been detected.
         // but that's ok, we try again after analysis is finished.
-        run(dtxmsg_attach);
+        run();
       }
       break;
 
@@ -856,54 +856,47 @@ static void idaapi term(void)
 //-----------------------------------------------------------------------------
 static bool idaapi run(size_t code)
 {
-  switch ( dtxmsg_run_code_t(code) )
+  if ( code != 0 )
   {
-    case dtxmsg_attach:
-      {
-        netnode node;
-        node.create(DTXMSG_NODE);
-
-        if ( node.altfirst(DTXMSG_ALT_BPTS) == BADNODE )
-        {
-          dtxmsg_deb("Warning: no breakpoints detected, cannot run yet\n");
-          break;
-        }
-
-        if ( pid == 0 )
-        {
-          dtxmsg_deb("No PID specified. You must attach manually (use -Odtxmsg:PID to attach automatically)\n");
-          break;
-        }
-
-        int _code = attach_process(pid, -1);
-        if ( _code != 1 )
-        {
-          dtxmsg_deb("Error: failed to attach to process. errcode=%d\n", _code);
-          break;
-        }
-
-        _code = wait_for_next_event(WFNE_SUSP|WFNE_SILENT, -1);
-        if ( _code != PROCESS_SUSPENDED )
-        {
-          dtxmsg_deb("Error: unknown debugger event: %d\n", _code);
-          break;
-        }
-
-        dtxmsg_deb("successfully attached to PID %d\n", pid);
-
-        request_continue_process();
-        run_requests();
-
-        return true;
-      }
-      break;
-
-    default:
-      dtxmsg_deb("unknown run code: %" FMT_Z "\n", code);
-      break;
+    dtxmsg_deb("unknown run code: %" FMT_Z "\n", code);
+    return false;
   }
 
-  return false;
+  netnode node;
+  node.create(DTXMSG_NODE);
+
+  if ( node.altfirst(DTXMSG_ALT_BPTS) == BADNODE )
+  {
+    dtxmsg_deb("Warning: no breakpoints detected, cannot run yet\n");
+    return false;
+  }
+
+  if ( pid == 0 )
+  {
+    dtxmsg_deb("No PID specified. You must attach manually (use -Odtxmsg:PID to attach automatically)\n");
+    return false;
+  }
+
+  int res = attach_process(pid, -1);
+  if ( res != 1 )
+  {
+    dtxmsg_deb("Error: failed to attach to process. errcode=%d\n", res);
+    return false;
+  }
+
+  res = wait_for_next_event(WFNE_SUSP|WFNE_SILENT, -1);
+  if ( res != PROCESS_SUSPENDED )
+  {
+    dtxmsg_deb("Error: unknown debugger event: %d\n", res);
+    return false;
+  }
+
+  dtxmsg_deb("successfully attached to PID %d\n", pid);
+
+  request_continue_process();
+  run_requests();
+
+  return true;
 }
 
 //-----------------------------------------------------------------------------
