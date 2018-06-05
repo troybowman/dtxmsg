@@ -446,47 +446,50 @@ static void set_dtxmsg_bpts_xcode8(netnode &node)
 }
 
 //-----------------------------------------------------------------------------
-static const lvar_t *find_retained_block(mbl_array_t *mba)
+static int find_retained_block(mbl_array_t *mba)
 {
-  ea_t retain_block = get_name_ea(BADADDR, "_objc_retainBlock");
-  if ( retain_block == BADADDR )
-    return NULL;
-
   // find a variable that is initialized like: v1 = objc_retainBlock(&block);
-  for ( mblock_t *b = mba->blocks; b != NULL; b = b->nextb )
+  struct ida_local block_finder_t : public minsn_visitor_t
   {
-    for ( minsn_t *m = b->head; m != NULL; m = m->next )
+    int idx;
+    block_finder_t() : idx(-1) {}
+    virtual int idaapi visit_minsn(void)
     {
-      if ( m->opcode == m_mov && m->d.t == mop_l && m->l.t == mop_d )
+      if ( curins->opcode == m_mov
+        && curins->d.t == mop_l
+        && curins->l.t == mop_d )
       {
-        const minsn_t *d = m->l.d;
+        const minsn_t *d = curins->l.d;
         if ( d->opcode == m_call )
         {
           const mfuncinfo_t *fi = d->d.f;
-          if ( fi->callee == retain_block )
+          if ( fi->callee == get_name_ea(BADADDR, "_objc_retainBlock") )
           {
             // found a retained block
-            const lvar_t *v = &m->d.l->var();
+            idx = curins->d.l->idx;
             // if the code later assigns this variable to another one,
             // the new variable takes priority
-            for ( minsn_t *n = m->next; n != NULL; n = n->next )
+            for ( minsn_t *n = curins->next; n != NULL; n = n->next )
             {
               if ( n->opcode == m_mov
                 && n->d.t == mop_l
                 && n->l.t == mop_l
-                && n->l.l->var() == *v )
+                && n->l.l->idx == idx )
               {
-                v = &n->d.l->var();
+                idx = n->d.l->idx;
               }
             }
-            return v;
+            return 1;
           }
         }
       }
+      return 0;
     }
-  }
+  };
 
-  return NULL;
+  block_finder_t bf;
+  mba->for_all_topinsns(bf);
+  return bf.idx;
 }
 
 //-----------------------------------------------------------------------------
@@ -553,8 +556,8 @@ static void set_dtxmsg_bpts_xcode9(netnode &node)
   // with a block function. the return value of this block function will be
   // a pointer to the serialized message data. we must find all instances where
   // it is invoked.
-  const lvar_t *bvar = find_retained_block(mba);
-  if ( bvar == NULL )
+  int idx = find_retained_block(mba);
+  if ( idx < 0 )
   {
     dtxmsg_deb("Error: expected to find objc_retainBlock() in function %a\n", parser_block->start_ea);
     return;
@@ -563,9 +566,9 @@ static void set_dtxmsg_bpts_xcode9(netnode &node)
   struct ida_local bpt_finder_t : public minsn_visitor_t
   {
     netnode &node;
-    const lvar_t &bvar;
+    int idx;
 
-    bpt_finder_t(netnode &_node, const lvar_t &_bvar) : node(_node), bvar(_bvar) {}
+    bpt_finder_t(netnode &_node, int _idx) : node(_node), idx(_idx) {}
 
     virtual int idaapi visit_minsn(void)
     {
@@ -576,7 +579,7 @@ static void set_dtxmsg_bpts_xcode9(netnode &node)
         // this is likely a call to the invoke function
         if ( fi->args.size() >= 2
           && fi->args[0].t == mop_l
-          && fi->args[0].l->var() == bvar
+          && fi->args[0].l->idx == idx
           // ignore calls with a constant as the length argument. they are likely just
           // reading the message header. we are only interested in calls that will return
           // a pointer to the full serialized message
@@ -589,7 +592,7 @@ static void set_dtxmsg_bpts_xcode9(netnode &node)
     }
   };
 
-  bpt_finder_t bf(node, *bvar);
+  bpt_finder_t bf(node, idx);
   mba->for_all_insns(bf);
 }
 
