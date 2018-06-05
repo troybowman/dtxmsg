@@ -884,7 +884,7 @@ static bool idaapi run(size_t)
   int res = attach_process(pid, -1);
   if ( res != 1 )
   {
-    dtxmsg_deb("Error: failed to attach to process. errcode=%d\n", res);
+    dtxmsg_deb("Error: failed to attach to PID %d. errcode=%d\n", pid, res);
     return false;
   }
 
