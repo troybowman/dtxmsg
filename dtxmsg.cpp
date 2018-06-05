@@ -365,6 +365,13 @@ static void set_dtxmsg_bpt(netnode &node, ea_t ea)
 }
 
 //-----------------------------------------------------------------------------
+typedef janitor_t<mbl_array_t *> mbl_janitor_t;
+template <> inline mbl_janitor_t::~janitor_t()
+{
+  delete resource;
+}
+
+//-----------------------------------------------------------------------------
 static void set_dtxmsg_bpts_xcode8(netnode &node)
 {
   const char *method = "-[DTXMessageParser parseMessageWithExceptionHandler:]";
@@ -396,6 +403,8 @@ static void set_dtxmsg_bpts_xcode8(netnode &node)
     dtxmsg_deb("microcode failure at %a: %s\n", hf.errea, hf.desc().c_str());
     return;
   }
+
+  mbl_janitor_t mj(mba);
 
   // add breakpoints after calls to -[DTXMessageParser waitForMoreData:incrementalBuffer:].
   // this function returns a pointer to the raw DTXMessage data.
@@ -434,8 +443,6 @@ static void set_dtxmsg_bpts_xcode8(netnode &node)
 
   bpt_finder_t bf(node);
   mba->for_all_insns(bf);
-
-  delete mba;
 }
 
 //-----------------------------------------------------------------------------
@@ -540,6 +547,8 @@ static void set_dtxmsg_bpts_xcode9(netnode &node)
     return;
   }
 
+  mbl_janitor_t mj(mba);
+
   // Xcode 9 also replaced -[DTXMessageParser waitForMoreData:incrementalBuffer:]
   // with a block function. the return value of this block function will be
   // a pointer to the serialized message data. we must find all instances where
@@ -582,8 +591,6 @@ static void set_dtxmsg_bpts_xcode9(netnode &node)
 
   bpt_finder_t bf(node, *bvar);
   mba->for_all_insns(bf);
-
-  delete mba;
 }
 
 //-----------------------------------------------------------------------------
@@ -687,9 +694,10 @@ static ssize_t idaapi ui_callback(void *, int code, va_list)
           dtxmsg_deb("Error: failed to import DTXMessage helper types\n");
         }
 
-        // try to run the plugin now. if loading a new file, it is too early
-        // to run the plugin because breakpoints have not been detected.
-        // but that's ok, we try again after analysis is finished.
+        // try to run the plugin now. if we're loading a new file,
+        // it is too early to run the plugin because breakpoints
+        // have not been detected. but that's ok, we will try again
+        // after analysis has finished.
         run();
       }
       break;
