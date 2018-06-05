@@ -771,14 +771,14 @@ static bool parse_args(int argc, const char **argv)
 int main(int argc, const char **argv)
 {
   if ( !parse_args(argc, argv) )
-    return -1;
+    return EXIT_FAILURE;
 
   if ( !load_mobile_device() )
-    return -1;
+    return EXIT_FAILURE;
 
   am_device_service_connection *conn = start_server();
   if ( conn == NULL )
-    return -1;
+    return EXIT_FAILURE;
 
   bool ok = false;
   if ( perform_handshake(conn) )
@@ -800,5 +800,5 @@ int main(int argc, const char **argv)
   AMDServiceConnectionInvalidate(conn);
   CFRelease(conn);
 
-  return ok ? 0 : -1;
+  return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

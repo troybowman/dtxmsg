@@ -715,7 +715,7 @@ static int idaapi init(void)
   ea_t version_ea = get_name_ea(BADADDR, "_DTXConnectionServicesVersionNumber");
   if ( version_ea == BADADDR )
   {
-    dtxmsg_deb("input file does not look the DTXConnectionServices library, skipping\n");
+    dtxmsg_deb("input file does not look like the DTXConnectionServices library, skipping\n");
     return PLUGIN_SKIP;
   }
 
