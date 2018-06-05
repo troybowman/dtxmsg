@@ -88,7 +88,7 @@ received by the iOS Instruments Server when Xcode queries the process list
    ```
    Note the plugin options: -Odtxmsg:11451:/tmp/dtxmsg:v
    * 11451 = PID of process to attach to
-   * /tmp/dtxmsg = directory where messages will be logged
+   * /tmp/dtxmsg = directory where messages will be logged (must be an absolute path)
    * v = enable verbose mode: deserialize the captured messages and print the results to a file in plain text
 
    If the plugin loads successfully, it will automatically attach to the given PID and allow the process to run idle,
