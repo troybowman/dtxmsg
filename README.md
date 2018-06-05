@@ -84,12 +84,12 @@ received by the iOS Instruments Server when Xcode queries the process list
    ```
    $ hdiutil mount /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/DeviceSupport/<your device's iOS version>/DeveloperDiskImage.dmg
    $ mkdir /tmp/dtxmsg
-   $ $IDA_INSTALL_DIR/ida.app/Contents/MacOS/ida64 -Odtxmsg:11451:/tmp/dtxmsg:v -o/tmp/dtxmsg/DTXConnectionServices.i64 -L/tmp/dtxmsg/ida.log /Volumes/DeveloperDiskImage/Library/PrivateFrameworks/DTXConnectionServices.framework/DTXConnectionServices
+   $ $IDA_INSTALL_DIR/ida.app/Contents/MacOS/ida64 -Odtxmsg:v:11451:/tmp/dtxmsg -o/tmp/dtxmsg/DTXConnectionServices.i64 -L/tmp/dtxmsg/ida.log /Volumes/DeveloperDiskImage/Library/PrivateFrameworks/DTXConnectionServices.framework/DTXConnectionServices
    ```
-   Note the plugin options: -Odtxmsg:11451:/tmp/dtxmsg:v
+   Note the plugin options: -Odtxmsg:v:11451:/tmp/dtxmsg
+   * v = enable verbose mode. deserialize the captured messages and print the results to a file in plain text
    * 11451 = PID of process to attach to
    * /tmp/dtxmsg = directory where messages will be logged
-   * v = enable verbose mode. deserialize the captured messages and print the results to a file in plain text
 
    If the plugin initializes successfully, it will automatically attach to the given PID and allow the process to run idle,
    waiting for incoming messages.
@@ -100,10 +100,9 @@ received by the iOS Instruments Server when Xcode queries the process list
    DTXMSG: message: /tmp/dtxmsg/dtxmsg_1_0.bin
    DTXMSG: message: /tmp/dtxmsg/dtxmsg_2_0.bin
    DTXMSG: message: /tmp/dtxmsg/dtxmsg_3_0.bin
-   DTXMSG: message: /tmp/dtxmsg/dtxmsg_4_0.bin
-   DTXMSG: message: /tmp/dtxmsg/dtxmsg_5_0.bin
+   ...
    ```
-   There will also be several .txt files in the same directory that contain the decoded data.
+   There will also be .txt files that contain the decoded data.
 
 ## dtxmsg\_client
 
