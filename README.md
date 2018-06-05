@@ -87,11 +87,11 @@ received by the iOS Instruments Server when Xcode queries the process list
    $ $IDA_INSTALL_DIR/ida.app/Contents/MacOS/ida64 -Odtxmsg:v:11451:/tmp/dtxmsg -o/tmp/dtxmsg/DTXConnectionServices.i64 -L/tmp/dtxmsg/ida.log /Volumes/DeveloperDiskImage/Library/PrivateFrameworks/DTXConnectionServices.framework/DTXConnectionServices
    ```
    Note the plugin options: -Odtxmsg:v:11451:/tmp/dtxmsg
-   * v = enable verbose mode. deserialize the captured messages and print the results to a file in plain text
+   * v = enable verbose mode: deserialize the captured messages and print the results to a file in plain text
    * 11451 = PID of process to attach to
    * /tmp/dtxmsg = directory where messages will be logged
 
-   If the plugin initializes successfully, it will automatically attach to the given PID and allow the process to run idle,
+   If the plugin loads successfully, it will automatically attach to the given PID and allow the process to run idle,
    waiting for incoming messages.
 
 6. Go back to Xcode, and select menu Debug>Attach to Process. If dtxmsg was able to intercept communications,
