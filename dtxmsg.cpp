@@ -836,10 +836,6 @@ static int idaapi init(void)
 //-----------------------------------------------------------------------------
 static void idaapi term(void)
 {
-  unhook_from_notification_point(HT_UI,  ui_callback);
-  unhook_from_notification_point(HT_IDB, idb_callback);
-  unhook_from_notification_point(HT_DBG, dbg_callback);
-
   if ( headers_fp != NULL )
   {
     qfclose(headers_fp);
@@ -851,29 +847,27 @@ static void idaapi term(void)
     term_hexrays_plugin();
     hexdsp = NULL;
   }
+
+  unhook_from_notification_point(HT_UI,  ui_callback);
+  unhook_from_notification_point(HT_IDB, idb_callback);
+  unhook_from_notification_point(HT_DBG, dbg_callback);
 }
 
 //-----------------------------------------------------------------------------
-static bool idaapi run(size_t code)
+static bool idaapi run(size_t)
 {
-  if ( code != 0 )
-  {
-    dtxmsg_deb("unknown run code: %" FMT_Z "\n", code);
-    return false;
-  }
-
   netnode node;
   node.create(DTXMSG_NODE);
 
   if ( node.altfirst(DTXMSG_ALT_BPTS) == BADNODE )
   {
-    dtxmsg_deb("Warning: no breakpoints detected, cannot run yet\n");
+    dtxmsg_deb("no breakpoints detected, cannot run yet\n");
     return false;
   }
 
   if ( pid == 0 )
   {
-    dtxmsg_deb("No PID specified. You must attach manually (use -Odtxmsg:PID to attach automatically)\n");
+    dtxmsg_deb("No PID specified. You must attach manually or use -Odtxmsg:PID.\n");
     return false;
   }
 
