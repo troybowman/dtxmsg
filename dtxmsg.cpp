@@ -241,7 +241,7 @@ static bool parse_message(ea_t buf, const DTXMessageHeader &mheader)
 //-----------------------------------------------------------------------------
 static bool handle_dtxmsg_bpt(void)
 {
-  // read the return register
+  // return value is a pointer to the message buffer
   regval_t val;
   const char *reg = ph.id == PLFM_ARM ? "X0" : "RAX";
   if ( !get_reg_val(reg, &val) )
@@ -250,7 +250,6 @@ static bool handle_dtxmsg_bpt(void)
     return false;
   }
 
-  // pointer to the message buffer
   ea_t buf = val.ival;
 
   // if buffer is NULL, just ignore it
