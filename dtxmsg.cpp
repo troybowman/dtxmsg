@@ -888,7 +888,7 @@ static bool idaapi run(size_t)
   res = wait_for_next_event(WFNE_SUSP|WFNE_SILENT, -1);
   if ( res != PROCESS_SUSPENDED )
   {
-    dtxmsg_deb("Error: unknown debugger event: %d\n", res);
+    dtxmsg_deb("Error: unexpected debugger event: %d\n", res);
     return false;
   }
 
