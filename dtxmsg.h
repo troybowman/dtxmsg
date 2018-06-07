@@ -6,7 +6,7 @@
 #include <kernwin.hpp>
 
 #define DTXMSG_NODE "$ dtxmsg" // stores internal plugin data
-#define DTXMSG_ALT_VERSION  0  // DTXConnectionServices library version
+#define DTXMSG_ALT_VERSION  0  // supval: DTXConnectionServices library version
 #define DTXMSG_ALT_BPTS    'B' // altval_ea: array of bpt eas for inspecting incoming packets
 
 #define DTXMSG_DEB_PFX "DTXMSG: "

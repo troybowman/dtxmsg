@@ -44,7 +44,8 @@ $ export IDASDK=/path/to/your/idasdk
 $ cd $IDASDK/plugins
 $ git clone https://github.com/troybowman/dtxmsg
 $ cd dtxmsg
-$ __EA64__=1 $IDASDK/bin/idamake.pl
+$ NDEBUG=1 $IDASDK/bin/idamake.pl
+$ __EA64__=1 NDEBUG=1 $IDASDK/bin/idamake.pl
 ```
 
 ## Run

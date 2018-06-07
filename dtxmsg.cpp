@@ -242,8 +242,13 @@ static bool parse_message(ea_t buf, const DTXMessageHeader &mheader)
 static bool handle_dtxmsg_bpt(void)
 {
   // return value is a pointer to the message buffer
+  const char *reg;
+  if ( ph.id == PLFM_ARM )
+    reg = inf.is_64bit() ? "X0"  : "R0";
+  else
+    reg = inf.is_64bit() ? "RAX" : "EAX";
+
   regval_t val;
-  const char *reg = ph.id == PLFM_ARM ? "X0" : "RAX";
   if ( !get_reg_val(reg, &val) )
   {
     dtxmsg_deb("Error: failed to get value of register %s\n", reg);
@@ -603,7 +608,10 @@ static void print_node_info(const char *pfx)
   node.create(DTXMSG_NODE);
 
   dtxmsg_deb("node info: %s\n", pfx);
-  dtxmsg_deb("  dtx version: %a\n", node.altval(DTXMSG_ALT_VERSION));
+
+  uint64 version = 0;
+  node.supval(DTXMSG_ALT_VERSION, &version, sizeof(version));
+  dtxmsg_deb("  dtx version: %llX\n", version);
 
   for ( nodeidx_t idx = node.altfirst(DTXMSG_ALT_BPTS);
         idx != BADNODE;
@@ -626,8 +634,10 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
         netnode node;
         node.create(DTXMSG_NODE);
 
+        uint64 version = 0;
+        node.supval(DTXMSG_ALT_VERSION, &version, sizeof(version));
+
         // sometime around Xcode 9, Apple decided to change everything
-        uint64 version = node.altval(DTXMSG_ALT_VERSION);
         if ( version < 0x40EED00000000000LL )
           set_dtxmsg_bpts_xcode8(node);
         else
@@ -730,10 +740,11 @@ static int idaapi init(void)
 
   netnode node;
   node.create(DTXMSG_NODE);
-  if ( node.altval(DTXMSG_ALT_VERSION) == 0 )
+  if ( node.supval(DTXMSG_ALT_VERSION, NULL, 0) == -1 )
   {
     // working with a fresh database - must perform some setup
-    node.altset(DTXMSG_ALT_VERSION, get_qword(version_ea));
+    uint64 version = get_qword(version_ea);
+    node.supset(DTXMSG_ALT_VERSION, &version, sizeof(version));
 
     const char *dbgname = NULL;
     const char *exe = NULL;
