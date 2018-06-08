@@ -858,16 +858,10 @@ static int idaapi init(void)
 static void idaapi term(void)
 {
   if ( headers_fp != NULL )
-  {
     qfclose(headers_fp);
-    headers_fp = NULL;
-  }
 
   if ( hexdsp != NULL )
-  {
     term_hexrays_plugin();
-    hexdsp = NULL;
-  }
 
   unhook_from_notification_point(HT_UI,  ui_callback);
   unhook_from_notification_point(HT_IDB, idb_callback);
