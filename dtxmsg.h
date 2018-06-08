@@ -2,7 +2,6 @@
 #define DTXMSG_H
 
 #include "dtxmsg_common.h"
-#include <pro.h>
 #include <kernwin.hpp>
 
 #define DTXMSG_NODE "$ dtxmsg" // stores internal plugin data
