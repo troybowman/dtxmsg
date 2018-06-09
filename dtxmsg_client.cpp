@@ -36,16 +36,16 @@ static bool load_mobile_device(void)
   void *handle = dlopen(path, RTLD_NOW);
   if ( handle == NULL )
   {
-    qeprintf("dlopen() failed for %s: %s", path, dlerror());
+    qeprintf("dlopen() failed for %s: %s\n", path, dlerror());
     return false;
   }
 
-#define BINDFUN(name, type)                                    \
-  name = reinterpret_cast<type>(dlsym(handle, #name));         \
-  if ( name == NULL )                                          \
-  {                                                            \
-    qeprintf("Could not find function " #name " in %s", path); \
-    return false;                                              \
+#define BINDFUN(name, type)                                      \
+  name = reinterpret_cast<type>(dlsym(handle, #name));           \
+  if ( name == NULL )                                            \
+  {                                                              \
+    qeprintf("Could not find function " #name " in %s\n", path); \
+    return false;                                                \
   }
 
   BINDFUN(AMDeviceNotificationSubscribe, mach_error_t (*)(am_device_notification_callback_t *, int, int, void *, am_device_notification **));
@@ -244,13 +244,13 @@ static bool recv_message(
     ssize_t nrecv = AMDServiceConnectionReceive(conn, &mheader, sizeof(mheader));
     if ( nrecv != sizeof(mheader) )
     {
-      qeprintf("failed to read message header: %s, nrecv = %lx", winerr(errno), nrecv);
+      qeprintf("failed to read message header: %s, nrecv = %lx\n", winerr(errno), nrecv);
       return false;
     }
 
     if ( mheader.magic != 0x1F3D5B79 )
     {
-      qeprintf("bad header magic: %x", mheader.magic);
+      qeprintf("bad header magic: %x\n", mheader.magic);
       return false;
     }
 
@@ -259,7 +259,7 @@ static bool recv_message(
       // the message is a response to a previous request, so it should have the same id as the request
       if ( mheader.identifier != cur_message )
       {
-        qeprintf("expected response to message id=%d, got a new message with id=%d", cur_message, mheader.identifier);
+        qeprintf("expected response to message id=%d, got a new message with id=%d\n", cur_message, mheader.identifier);
         return false;
       }
     }
@@ -276,13 +276,13 @@ static bool recv_message(
       else if ( mheader.identifier < cur_message )
       {
         // the id must match the previous request, anything else doesn't really make sense
-        qeprintf("unexpected message ID: %d", mheader.identifier);
+        qeprintf("unexpected message ID: %d\n", mheader.identifier);
         return false;
       }
     }
     else
     {
-      qeprintf("invalid conversation index: %d", mheader.conversationIndex);
+      qeprintf("invalid conversation index: %d\n", mheader.conversationIndex);
       return false;
     }
 
@@ -307,7 +307,7 @@ static bool recv_message(
       nrecv = AMDServiceConnectionReceive(conn, data+nbytes, mheader.length-nbytes);
       if ( nrecv <= 0 )
       {
-        qeprintf("failed reading from socket: %s", winerr(errno));
+        qeprintf("failed reading from socket: %s\n", winerr(errno));
         return false;
       }
       nbytes += nrecv;
@@ -327,7 +327,7 @@ static bool recv_message(
   uint8 compression = (pheader->flags & 0xFF000) >> 12;
   if ( compression != 0 )
   {
-    qeprintf("message is compressed (compression type %d)", compression);
+    qeprintf("message is compressed (compression type %d)\n", compression);
     return false;
   }
 
@@ -443,7 +443,7 @@ static int make_channel(am_device_service_connection *conn, CFStringRef identifi
 {
   if ( !CFDictionaryContainsKey(channels, identifier) )
   {
-    qeprintf("channel %s is not supported by the server", to_qstring(identifier).c_str());
+    qeprintf("channel %s is not supported by the server\n", to_qstring(identifier).c_str());
     return -1;
   }
 
@@ -464,7 +464,7 @@ static int make_channel(am_device_service_connection *conn, CFStringRef identifi
 
   if ( retobj != NULL )
   {
-    qeprintf("Error: _requestChannelWithCode:identifier: returned %s", get_description(retobj).c_str());
+    qeprintf("Error: _requestChannelWithCode:identifier: returned %s\n", get_description(retobj).c_str());
     CFRelease(retobj);
     return -1;
   }
@@ -565,7 +565,7 @@ static bool print_applist(am_device_service_connection *conn)
   }
   else
   {
-    qeprintf("apps list has an unexpected format: %s", get_description(retobj).c_str());
+    qeprintf("apps list has an unexpected format: %s\n", get_description(retobj).c_str());
     ok = false;
   }
 
