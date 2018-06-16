@@ -1,15 +1,10 @@
-
-# currently this plugin can only build with __EA64__=1.
-# this is for two reasons:
-#   1. the DTXConnectionServices library is only available in 64-bit for both OSX and iOS
-#      (at least for all versions I've seen), so for now the plugin assumes 64-bit
-#   2. the sample dtxmsg_client app must link against pro.a/dumb.o, which are only available
-#      for __EA64__ builds
-ifdef __EA64__
-
 PROC = dtxmsg
 O1 = dtxmsg_common
+
+# dtxmsg_client must link against pro.a/dumb.o, which are only available for __EA64__ builds
+ifdef __EA64__
 ADDITIONAL_GOALS += dtxmsg_client
+endif
 
 include ../plugin.mak
 
@@ -40,11 +35,3 @@ $(F)dtxmsg_common$(O): $(I)llong.hpp $(I)pro.h dtxmsg_common.cpp            \
 	          dtxmsg_common.h
 $(F)dtxmsg_client$(O): $(I)err.h $(I)fpro.h $(I)llong.hpp $(I)pro.h         \
 	          dtxmsg_client.cpp dtxmsg_client.h dtxmsg_common.h
-
-else # __EA64__
-
-ADDITIONAL_GOALS = skip
-skip:
-	@echo "warning: dtxmsg plugin cannot be built for EA32. Please build with __EA64__=1."
-
-endif

@@ -96,12 +96,14 @@ CFArrayRef deserialize(
         break;
 
       case 3:
+      case 5:
         // 32-bit int
         ref = CFNumberCreate(NULL, kCFNumberSInt32Type, buf+off);
         length = 4;
         break;
 
       case 4:
+      case 6:
         // 64-bit int
         ref = CFNumberCreate(NULL, kCFNumberSInt64Type, buf+off);
         length = 8;
