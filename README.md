@@ -2,13 +2,16 @@
 
 This is an IDA plugin that helped me reverse-engineer the DTXConnectionServices framework.
 
+This plugin was a core topic of my presentation "Discovering the iOS Instruments Server"
+at Recon Montreal 2018 (see slides.pdf).
+
+## Overview
+
 DTXConnectionServices is a library developed by Apple that facilitates interoperability
 between iOS and OSX. It is notably used to transmit debugging statistics between the
 iOS Instruments Server and Xcode.
 
 The goal of this plugin is to help uncover how this communication mechanism works.
-
-## Overview
 
 dtxmsg detects critical pieces of logic in the DTXConnectionServices binary, sets breakpoints
 at these locations, then hooks into IDA's debugger events and dumps the packets of information
