@@ -2,8 +2,8 @@
 
 This is an IDA plugin that helped me reverse-engineer the DTXConnectionServices framework.
 
-This plugin was a core topic of my presentation "Discovering the iOS Instruments Server"
-at Recon Montreal 2018 (see [slides.pdf][4]).
+This plugin was a core topic of my presentation [Discovering the iOS Instruments Server][4]
+at [Recon Montreal 2018][5].
 
 ## Overview
 
@@ -124,3 +124,4 @@ $ $IDASDK/bin/dtxmsg_client -h
 [2]: https://www.hex-rays.com/products/ida/support/tutorials/ios_debugger_tutorial.pdf
 [3]: https://www.hex-rays.com/products/ida/support/ida/ios_deploy.zip
 [4]: https://github.com/troybowman/dtxmsg/blob/master/slides.pdf
+[5]: https://recon.cx/2018/montreal
