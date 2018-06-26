@@ -28,7 +28,8 @@ In order to build and run dtxmsg, you must have access to the following:
   * IDA 7.1 or later, with decompiler support
   * IDA SDK 7.1 or later
   * hexrays\_sdk 7.1 or later
-  * a jailbroken iOS device
+  * a jailbroken iOS device (this is required for debugging the Instruments server.
+    however, simply *communicating* with the server does not require a jailbroken device. see [dtxmsg_client](#dtxmsg_client))
   * a patched iOS [debugserver][1]
   * OSX with Xcode installed
 
@@ -91,9 +92,9 @@ received by the iOS Instruments Server when Xcode queries the process list
    $ $IDA_INSTALL_DIR/ida.app/Contents/MacOS/ida64 -Odtxmsg:11451:/tmp/dtxmsg:v -o/tmp/dtxmsg/DTXConnectionServices.i64 -L/tmp/dtxmsg/ida.log /Volumes/DeveloperDiskImage/Library/PrivateFrameworks/DTXConnectionServices.framework/DTXConnectionServices
    ```
    Note the plugin options: -Odtxmsg:11451:/tmp/dtxmsg:v
-   * 11451 = PID of process to attach to
+   * 11451 = PID of the Instruments Server process
    * /tmp/dtxmsg = directory where messages will be logged (must be an absolute path)
-   * v = enable verbose mode: deserialize the captured messages and print the results to a file in plain text
+   * v = enable verbose mode. captured messages will be deserialized and printed to a file in plain text
 
    If the plugin loads successfully, it will automatically attach to the given PID and allow the process to run idle,
    waiting for incoming messages.
@@ -108,11 +109,14 @@ received by the iOS Instruments Server when Xcode queries the process list
    ```
    There will also be .txt files that contain the decoded data.
 
-## dtxmsg\_client
+## dtxmsg_client
 
-This project also includes a standalone application that can communicate with the iOS Instruments
+This project also includes a [standalone application][6] that can communicate with the iOS Instruments
 Server independently. It serves as an example of how to "speak the language"
 of the DTXConnectionServices framework.
+
+This app can communicate with any device, provided the Instruments Server has been installed.
+The app does not require a jailbreak, and so far has worked with any iOS version from 9.3-11.4.
 
 To run it, see:
 
@@ -120,8 +124,14 @@ To run it, see:
 $ $IDASDK/bin/dtxmsg_client -h
 ```
 
+Note that you can install the Instruments Server with [ios_deploy][3]:
+```
+$ ios_deploy mount -h
+```
+
 [1]: http://iphonedevwiki.net/index.php/Debugserver
 [2]: https://www.hex-rays.com/products/ida/support/tutorials/ios_debugger_tutorial.pdf
 [3]: https://www.hex-rays.com/products/ida/support/ida/ios_deploy.zip
 [4]: https://github.com/troybowman/dtxmsg/blob/master/slides.pdf
 [5]: https://recon.cx/2018/montreal
+[6]: https://github.com/troybowman/dtxmsg/blob/master/dtxmsg_client.cpp
