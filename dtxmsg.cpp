@@ -11,6 +11,7 @@
 #include <hexrays.hpp>
 #include "dtxmsg.h"
 
+static netnode dtxmsg_node;
 static char logdir[QMAXPATH] = { 0 };
 static FILE *headers_fp = NULL;
 static bool verbose = false;
@@ -332,10 +333,7 @@ static ssize_t idaapi dbg_callback(void *, int notification_code, va_list va)
         thid_t tid = va_arg(va, thid_t);
         ea_t bpt   = va_arg(va, ea_t);
 
-        netnode node;
-        node.create(DTXMSG_NODE);
-
-        if ( node.altval_ea(bpt, DTXMSG_ALT_BPTS) == 0 )
+        if ( dtxmsg_node.altval_ea(bpt, DTXMSG_ALT_BPTS) == 0 )
           break;
 
         if ( verbose )
@@ -358,14 +356,14 @@ static ssize_t idaapi dbg_callback(void *, int notification_code, va_list va)
 }
 
 //-----------------------------------------------------------------------------
-static void set_dtxmsg_bpt(netnode &node, ea_t ea)
+static void set_dtxmsg_bpt(ea_t ea)
 {
   if ( !add_bpt(ea, 1, BPT_DEFAULT) )
   {
     dtxmsg_deb("Error: failed to add breakpoint at %a\n", ea);
     return;
   }
-  node.altset_ea(ea, 1, DTXMSG_ALT_BPTS);
+  dtxmsg_node.altset_ea(ea, 1, DTXMSG_ALT_BPTS);
   dtxmsg_deb("magic bpt: %a\n", ea);
 }
 
@@ -377,7 +375,7 @@ template <> inline mbl_janitor_t::~janitor_t()
 }
 
 //-----------------------------------------------------------------------------
-static void set_dtxmsg_bpts_xcode8(netnode &node)
+static void set_dtxmsg_bpts_xcode8(void)
 {
   const char *method = "-[DTXMessageParser parseMessageWithExceptionHandler:]";
   ea_t ea = get_name_ea(BADADDR, method);
@@ -415,8 +413,6 @@ static void set_dtxmsg_bpts_xcode8(netnode &node)
   // this function returns a pointer to the raw DTXMessage data.
   struct ida_local bpt_finder_t : public minsn_visitor_t
   {
-    netnode &node;
-    bpt_finder_t(netnode &_node) : node(_node) {}
     virtual int idaapi visit_minsn(void)
     {
       if ( curins->opcode == m_call )
@@ -437,7 +433,7 @@ static void set_dtxmsg_bpts_xcode8(netnode &node)
               // a pointer to the full serialized message.
               && fi->args[2].t != mop_n )
             {
-              set_dtxmsg_bpt(node, get_item_end(curins->ea));
+              set_dtxmsg_bpt(get_item_end(curins->ea));
             }
           }
         }
@@ -446,7 +442,7 @@ static void set_dtxmsg_bpts_xcode8(netnode &node)
     }
   };
 
-  bpt_finder_t bf(node);
+  bpt_finder_t bf;
   mba->for_all_insns(bf);
 }
 
@@ -498,7 +494,7 @@ static int find_retained_block(mbl_array_t *mba)
 }
 
 //-----------------------------------------------------------------------------
-static void set_dtxmsg_bpts_xcode9(netnode &node)
+static void set_dtxmsg_bpts_xcode9(void)
 {
   const char *method = "-[DTXMessageParser parseIncomingBytes:length:]";
   ea_t ea = get_name_ea(BADADDR, method);
@@ -570,10 +566,9 @@ static void set_dtxmsg_bpts_xcode9(netnode &node)
 
   struct ida_local bpt_finder_t : public minsn_visitor_t
   {
-    netnode &node;
     int idx;
 
-    bpt_finder_t(netnode &_node, int _idx) : node(_node), idx(_idx) {}
+    bpt_finder_t(int _idx) : idx(_idx) {}
 
     virtual int idaapi visit_minsn(void)
     {
@@ -590,32 +585,29 @@ static void set_dtxmsg_bpts_xcode9(netnode &node)
           // a pointer to the full serialized message
           && fi->args[1].t != mop_n )
         {
-          set_dtxmsg_bpt(node, get_item_end(curins->ea));
+          set_dtxmsg_bpt(get_item_end(curins->ea));
         }
       }
       return 0;
     }
   };
 
-  bpt_finder_t bf(node, idx);
+  bpt_finder_t bf(idx);
   mba->for_all_insns(bf);
 }
 
 //-----------------------------------------------------------------------------
 static void print_node_info(const char *pfx)
 {
-  netnode node;
-  node.create(DTXMSG_NODE);
-
   dtxmsg_deb("node info: %s\n", pfx);
 
   uint64 version = 0;
-  node.supval(DTXMSG_ALT_VERSION, &version, sizeof(version));
+  dtxmsg_node.supval(DTXMSG_ALT_VERSION, &version, sizeof(version));
   dtxmsg_deb("  dtx version: %llX\n", version);
 
-  for ( nodeidx_t idx = node.altfirst(DTXMSG_ALT_BPTS);
+  for ( nodeidx_t idx = dtxmsg_node.altfirst(DTXMSG_ALT_BPTS);
         idx != BADNODE;
-        idx = node.altnext(idx, DTXMSG_ALT_BPTS) )
+        idx = dtxmsg_node.altnext(idx, DTXMSG_ALT_BPTS) )
   {
     dtxmsg_deb("  magic bpt:   %a\n", node2ea(idx));
   }
@@ -631,17 +623,14 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
         if ( hexdsp == NULL )
           break;
 
-        netnode node;
-        node.create(DTXMSG_NODE);
-
         uint64 version = 0;
-        node.supval(DTXMSG_ALT_VERSION, &version, sizeof(version));
+        dtxmsg_node.supval(DTXMSG_ALT_VERSION, &version, sizeof(version));
 
         // sometime around Xcode 9, Apple decided to change everything
         if ( version < 0x40EED00000000000LL )
-          set_dtxmsg_bpts_xcode8(node);
+          set_dtxmsg_bpts_xcode8();
         else
-          set_dtxmsg_bpts_xcode9(node);
+          set_dtxmsg_bpts_xcode9();
 
         run();
       }
@@ -649,15 +638,13 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
 
     case idb_event::allsegs_moved:
       {
-        netnode node;
-        node.create(DTXMSG_NODE);
         const segm_move_infos_t *smi = va_arg(va, segm_move_infos_t *);
 
         for ( segm_move_infos_t::const_iterator i = smi->begin(); i != smi->end(); ++i )
         {
           nodeidx_t n1 = ea2node(i->from);
           nodeidx_t n2 = ea2node(i->to);
-          node.altshift(n1, n2, i->size, DTXMSG_ALT_BPTS);
+          dtxmsg_node.altshift(n1, n2, i->size, DTXMSG_ALT_BPTS);
         }
 
         print_node_info("rebased");
@@ -738,13 +725,13 @@ static int idaapi init(void)
     return PLUGIN_SKIP;
   }
 
-  netnode node;
-  node.create(DTXMSG_NODE);
-  if ( node.supval(DTXMSG_ALT_VERSION, NULL, 0) == -1 )
+  dtxmsg_node.create(DTXMSG_NODE);
+
+  if ( dtxmsg_node.supval(DTXMSG_ALT_VERSION, NULL, 0) == -1 )
   {
     // working with a fresh database - must perform some setup
     uint64 version = get_qword(version_ea);
-    node.supset(DTXMSG_ALT_VERSION, &version, sizeof(version));
+    dtxmsg_node.supset(DTXMSG_ALT_VERSION, &version, sizeof(version));
 
     const char *dbgname = NULL;
     const char *exe = NULL;
@@ -871,10 +858,7 @@ static void idaapi term(void)
 //-----------------------------------------------------------------------------
 static bool idaapi run(size_t)
 {
-  netnode node;
-  node.create(DTXMSG_NODE);
-
-  if ( node.altfirst(DTXMSG_ALT_BPTS) == BADNODE )
+  if ( dtxmsg_node.altfirst(DTXMSG_ALT_BPTS) == BADNODE )
   {
     dtxmsg_deb("no breakpoints detected, cannot run yet\n");
     return false;
