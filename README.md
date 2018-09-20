@@ -116,7 +116,7 @@ Server independently. It serves as an example of how to "speak the language"
 of the DTXConnectionServices framework.
 
 This app can communicate with any device, provided the Instruments Server has been installed.
-The app does not require a jailbreak, and so far has worked with any iOS version from 9.3-11.4.
+The app does not require a jailbreak, and so far has worked with any iOS version from 9.3-12.0.
 
 To run it, see:
 
