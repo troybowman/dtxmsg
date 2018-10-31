@@ -417,10 +417,10 @@ static void set_dtxmsg_bpts_xcode8(void)
     {
       if ( curins->opcode == m_call )
       {
-        const mfuncinfo_t *fi = curins->d.f;
-        if ( fi->args.size() == 4 && fi->callee == get_name_ea(BADADDR, "_objc_msgSend") )
+        const mcallinfo_t *ci = curins->d.f;
+        if ( ci->args.size() == 4 && ci->callee == get_name_ea(BADADDR, "_objc_msgSend") )
         {
-          const mfuncarg_t &selarg = fi->args[1];
+          const mcallarg_t &selarg = ci->args[1];
           if ( selarg.t == mop_a || selarg.a->t == mop_v )
           {
             qstring sel;
@@ -431,7 +431,7 @@ static void set_dtxmsg_bpts_xcode8(void)
               // ignore calls with a constant as the length argument. they are likely just
               // reading the message header. we are only interested in calls that will return
               // a pointer to the full serialized message.
-              && fi->args[2].t != mop_n )
+              && ci->args[2].t != mop_n )
             {
               set_dtxmsg_bpt(get_item_end(curins->ea));
             }
@@ -463,8 +463,8 @@ static int find_retained_block(mbl_array_t *mba)
         const minsn_t *d = curins->l.d;
         if ( d->opcode == m_call )
         {
-          const mfuncinfo_t *fi = d->d.f;
-          if ( fi->callee == get_name_ea(BADADDR, "_objc_retainBlock") )
+          const mcallinfo_t *ci = d->d.f;
+          if ( ci->callee == get_name_ea(BADADDR, "_objc_retainBlock") )
           {
             // found a retained block
             idx = curins->d.l->idx;
@@ -574,16 +574,16 @@ static void set_dtxmsg_bpts_xcode9(void)
     {
       if ( curins->opcode == m_icall )
       {
-        const mfuncinfo_t *fi = curins->d.f;
+        const mcallinfo_t *ci = curins->d.f;
         // if the block variable is the first argument for an indirect call,
         // this is likely a call to the invoke function
-        if ( fi->args.size() >= 2
-          && fi->args[0].t == mop_l
-          && fi->args[0].l->idx == idx
+        if ( ci->args.size() >= 2
+          && ci->args[0].t == mop_l
+          && ci->args[0].l->idx == idx
           // ignore calls with a constant as the length argument. they are likely just
           // reading the message header. we are only interested in calls that will return
           // a pointer to the full serialized message
-          && fi->args[1].t != mop_n )
+          && ci->args[1].t != mop_n )
         {
           set_dtxmsg_bpt(get_item_end(curins->ea));
         }

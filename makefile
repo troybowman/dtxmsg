@@ -3,7 +3,7 @@ O1 = dtxmsg_common
 
 # dtxmsg_client must link against pro.a/dumb.o, which are only available for __EA64__ builds
 ifdef __EA64__
-ADDITIONAL_GOALS += dtxmsg_client
+GOALS += dtxmsg_client
 endif
 
 include ../plugin.mak
@@ -18,8 +18,7 @@ $(F)dtxmsg_common$(O): CFLAGS += -x objective-c++
 
 .PHONY: dtxmsg_client
 dtxmsg_client: $(R)dtxmsg_client
-$(R)dtxmsg_client: $(F)dtxmsg_common$(O) $(F)dtxmsg_client$(O)
-	$(call link_dumb,$@ $^)
+$(R)dtxmsg_client: $(call dumb_target, pro, $(F)dtxmsg_common$(O) $(F)dtxmsg_client$(O))
 
 # MAKEDEP dependency list ------------------
 $(F)dtxmsg$(O)  : $(I)bitrange.hpp $(I)bytes.hpp $(I)config.hpp             \
