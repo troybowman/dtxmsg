@@ -129,9 +129,14 @@ Note that you can install the Instruments Server with [ios_deploy][3]:
 $ ios_deploy mount -h
 ```
 
+UPDATE: the dtxmsg\_client app has been moved to its own repository: [ios\_instruments\_client][7].
+Due to the popularity of this client code, it made sense to create a standalone repo that does not depend on the IDA SDK to build.
+For any inquiries about the dtxmsg\_client app, please use the ios\_instruments\_client repo instead.
+
 [1]: http://iphonedevwiki.net/index.php/Debugserver
 [2]: https://www.hex-rays.com/products/ida/support/tutorials/ios_debugger_tutorial.pdf
 [3]: https://www.hex-rays.com/products/ida/support/ida/ios_deploy.zip
 [4]: https://github.com/troybowman/dtxmsg/blob/master/slides.pdf
 [5]: https://recon.cx/2018/montreal
 [6]: https://github.com/troybowman/dtxmsg/blob/master/dtxmsg_client.cpp
+[7]: https://github.com/troybowman/ios_instruments_client
