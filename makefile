@@ -3,7 +3,8 @@ O1 = dtxmsg_common
 
 # dtxmsg_client must link against pro.a/dumb.o, which are only available for __EA64__ builds
 ifdef __EA64__
-GOALS += dtxmsg_client
+# the dtxmsg_client app is now deprecated. please use this utility intead: https://github.com/troybowman/ios_instruments_client
+#GOALS += dtxmsg_client
 endif
 
 include ../plugin.mak

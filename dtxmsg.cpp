@@ -1,7 +1,4 @@
-#include <ida.hpp>
-#include <idp.hpp>
-#include <loader.hpp>
-#include <kernwin.hpp>
+#include "dtxmsg.h"
 #include <dbg.hpp>
 #include <struct.hpp>
 #include <typeinf.hpp>
@@ -9,27 +6,15 @@
 #include <err.h>
 #include <moves.hpp>
 #include <hexrays.hpp>
-#include "dtxmsg.h"
-
-static netnode dtxmsg_node;
-static char logdir[QMAXPATH] = { 0 };
-static FILE *headers_fp = NULL;
-static bool verbose = false;
-static pid_t pid = 0;
-hexdsp_t *hexdsp = NULL;
 
 //-----------------------------------------------------------------------------
-static bool idaapi run(size_t code = 0);
-
-//-----------------------------------------------------------------------------
-// try to parse a serialized object and print it to a file in plain text
-static bool deserialize_component(
+bool dtxmsg_plugmod_t::deserialize_component(
         const char *label,
         uint32 identifier,
         FILE *payload_fp,
         uint64 off,
         uint64 length,
-        bool is_array)
+        bool is_array) const
 {
   qstring base;
   char binpath[QMAXPATH];
@@ -98,7 +83,7 @@ static bool deserialize_component(
 }
 
 //-----------------------------------------------------------------------------
-static bool deserialize_payload(const char *path, uint32 id)
+bool dtxmsg_plugmod_t::deserialize_payload(const char *path, uint32 id) const
 {
   FILE *payload_fp = qfopen(path, "rb");
   if ( payload_fp == NULL )
@@ -168,7 +153,7 @@ static bool format_header(qstring *out, ea_t ea, const tinfo_t &tif)
 }
 
 //-----------------------------------------------------------------------------
-static bool parse_message(ea_t buf, const DTXMessageHeader &mheader)
+bool dtxmsg_plugmod_t::parse_message(ea_t buf, const DTXMessageHeader &mheader) const
 {
   // it is possible that this message is just one of many "fragments".
   // this happens when an object is too big to be transmitted in a single message
@@ -240,14 +225,14 @@ static bool parse_message(ea_t buf, const DTXMessageHeader &mheader)
 }
 
 //-----------------------------------------------------------------------------
-static bool handle_dtxmsg_bpt(void)
+bool dtxmsg_plugmod_t::handle_dtxmsg_bpt(void) const
 {
   // return value is a pointer to the message buffer
   const char *reg;
   if ( ph.id == PLFM_ARM )
-    reg = inf.is_64bit() ? "X0"  : "R0";
+    reg = inf_is_64bit() ? "X0"  : "R0";
   else
-    reg = inf.is_64bit() ? "RAX" : "EAX";
+    reg = inf_is_64bit() ? "RAX" : "EAX";
 
   regval_t val;
   if ( !get_reg_val(reg, &val) )
@@ -324,7 +309,7 @@ static bool handle_dtxmsg_bpt(void)
 }
 
 //-----------------------------------------------------------------------------
-static ssize_t idaapi dbg_callback(void *, int notification_code, va_list va)
+ssize_t idaapi dbg_listener_t::on_event(ssize_t notification_code, va_list va)
 {
   switch ( notification_code )
   {
@@ -333,13 +318,13 @@ static ssize_t idaapi dbg_callback(void *, int notification_code, va_list va)
         thid_t tid = va_arg(va, thid_t);
         ea_t bpt   = va_arg(va, ea_t);
 
-        if ( dtxmsg_node.altval_ea(bpt, DTXMSG_ALT_BPTS) == 0 )
+        if ( dpm.dtxmsg_node.altval_ea(bpt, DTXMSG_ALT_BPTS) == 0 )
           break;
 
-        if ( verbose )
+        if ( dpm.verbose )
           dtxmsg_deb("magic bpt: %a, tid=%d\n", bpt, tid);
 
-        if ( !handle_dtxmsg_bpt() )
+        if ( !dpm.handle_dtxmsg_bpt() )
           break;
 
         // resume process
@@ -356,7 +341,7 @@ static ssize_t idaapi dbg_callback(void *, int notification_code, va_list va)
 }
 
 //-----------------------------------------------------------------------------
-static void set_dtxmsg_bpt(ea_t ea)
+void dtxmsg_plugmod_t::set_dtxmsg_bpt(ea_t ea)
 {
   if ( !add_bpt(ea, 1, BPT_DEFAULT) )
   {
@@ -375,7 +360,7 @@ template <> inline mbl_janitor_t::~janitor_t()
 }
 
 //-----------------------------------------------------------------------------
-static void set_dtxmsg_bpts_xcode8(void)
+void dtxmsg_plugmod_t::set_dtxmsg_bpts_xcode8(void)
 {
   const char *method = "-[DTXMessageParser parseMessageWithExceptionHandler:]";
   ea_t ea = get_name_ea(BADADDR, method);
@@ -413,6 +398,8 @@ static void set_dtxmsg_bpts_xcode8(void)
   // this function returns a pointer to the raw DTXMessage data.
   struct ida_local bpt_finder_t : public minsn_visitor_t
   {
+    dtxmsg_plugmod_t *dpm;
+    bpt_finder_t(dtxmsg_plugmod_t *_dpm) : dpm(_dpm) {}
     virtual int idaapi visit_minsn(void)
     {
       if ( curins->opcode == m_call )
@@ -433,7 +420,7 @@ static void set_dtxmsg_bpts_xcode8(void)
               // a pointer to the full serialized message.
               && ci->args[2].t != mop_n )
             {
-              set_dtxmsg_bpt(get_item_end(curins->ea));
+              dpm->set_dtxmsg_bpt(get_item_end(curins->ea));
             }
           }
         }
@@ -442,7 +429,7 @@ static void set_dtxmsg_bpts_xcode8(void)
     }
   };
 
-  bpt_finder_t bf;
+  bpt_finder_t bf(this);
   mba->for_all_insns(bf);
 }
 
@@ -494,7 +481,7 @@ static int find_retained_block(mbl_array_t *mba)
 }
 
 //-----------------------------------------------------------------------------
-static void set_dtxmsg_bpts_xcode9(void)
+void dtxmsg_plugmod_t::set_dtxmsg_bpts_xcode9(void)
 {
   const char *method = "-[DTXMessageParser parseIncomingBytes:length:]";
   ea_t ea = get_name_ea(BADADDR, method);
@@ -566,10 +553,9 @@ static void set_dtxmsg_bpts_xcode9(void)
 
   struct ida_local bpt_finder_t : public minsn_visitor_t
   {
+    dtxmsg_plugmod_t *dpm;
     int idx;
-
-    bpt_finder_t(int _idx) : idx(_idx) {}
-
+    bpt_finder_t(dtxmsg_plugmod_t *_dpm, int _idx) : dpm(_dpm), idx(_idx) {}
     virtual int idaapi visit_minsn(void)
     {
       if ( curins->opcode == m_icall )
@@ -585,19 +571,19 @@ static void set_dtxmsg_bpts_xcode9(void)
           // a pointer to the full serialized message
           && ci->args[1].t != mop_n )
         {
-          set_dtxmsg_bpt(get_item_end(curins->ea));
+          dpm->set_dtxmsg_bpt(get_item_end(curins->ea));
         }
       }
       return 0;
     }
   };
 
-  bpt_finder_t bf(idx);
+  bpt_finder_t bf(this, idx);
   mba->for_all_insns(bf);
 }
 
 //-----------------------------------------------------------------------------
-static void print_node_info(const char *pfx)
+void dtxmsg_plugmod_t::print_node_info(const char *pfx) const
 {
   dtxmsg_deb("node info: %s\n", pfx);
 
@@ -614,25 +600,22 @@ static void print_node_info(const char *pfx)
 }
 
 //-----------------------------------------------------------------------------
-static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
+ssize_t idaapi idb_listener_t::on_event(ssize_t notification_code, va_list va)
 {
   switch ( notification_code )
   {
     case idb_event::auto_empty_finally:
       {
-        if ( hexdsp == NULL )
-          break;
-
         uint64 version = 0;
-        dtxmsg_node.supval(DTXMSG_ALT_VERSION, &version, sizeof(version));
+        dpm.dtxmsg_node.supval(DTXMSG_ALT_VERSION, &version, sizeof(version));
 
         // sometime around Xcode 9, Apple decided to change everything
         if ( version < 0x40EED00000000000LL )
-          set_dtxmsg_bpts_xcode8();
+          dpm.set_dtxmsg_bpts_xcode8();
         else
-          set_dtxmsg_bpts_xcode9();
+          dpm.set_dtxmsg_bpts_xcode9();
 
-        run();
+        dpm.run(0);
       }
       break;
 
@@ -644,10 +627,10 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
         {
           nodeidx_t n1 = ea2node(i->from);
           nodeidx_t n2 = ea2node(i->to);
-          dtxmsg_node.altshift(n1, n2, i->size, DTXMSG_ALT_BPTS);
+          dpm.dtxmsg_node.altshift(n1, n2, i->size, DTXMSG_ALT_BPTS);
         }
 
-        print_node_info("rebased");
+        dpm.print_node_info("rebased");
       }
       break;
 
@@ -659,7 +642,7 @@ static ssize_t idaapi idb_callback(void *, int notification_code, va_list va)
 }
 
 //-----------------------------------------------------------------------------
-static ssize_t idaapi ui_callback(void *, int code, va_list)
+ssize_t idaapi ui_listener_t::on_event(ssize_t code, va_list)
 {
   switch ( code )
   {
@@ -698,7 +681,7 @@ static ssize_t idaapi ui_callback(void *, int code, va_list)
         // it is too early to run the plugin because breakpoints
         // have not been detected. but that's ok, we will try again
         // after analysis has finished.
-        run();
+        dpm.run(0);
       }
       break;
 
@@ -710,35 +693,36 @@ static ssize_t idaapi ui_callback(void *, int code, va_list)
 }
 
 //-----------------------------------------------------------------------------
-static int idaapi init(void)
+static plugmod_t *idaapi init(void)
 {
   ea_t version_ea = get_name_ea(BADADDR, "_DTXConnectionServicesVersionNumber");
   if ( version_ea == BADADDR )
   {
     dtxmsg_deb("input file does not look like the DTXConnectionServices library, skipping\n");
-    return PLUGIN_SKIP;
+    return nullptr;
   }
 
   if ( !init_hexrays_plugin() )
   {
     dtxmsg_deb("Error: this plugin requires the hexrays decompiler!\n");
-    return PLUGIN_SKIP;
+    return nullptr;
   }
 
-  dtxmsg_node.create(DTXMSG_NODE);
+  // initialize the plugin context
+  dtxmsg_plugmod_t *dpm = new dtxmsg_plugmod_t;
 
-  if ( dtxmsg_node.supval(DTXMSG_ALT_VERSION, NULL, 0) == -1 )
+  if ( dpm->dtxmsg_node.supval(DTXMSG_ALT_VERSION, NULL, 0) == -1 )
   {
     // working with a fresh database - must perform some setup
     uint64 version = get_qword(version_ea);
-    dtxmsg_node.supset(DTXMSG_ALT_VERSION, &version, sizeof(version));
+    dpm->dtxmsg_node.supset(DTXMSG_ALT_VERSION, &version, sizeof(version));
 
     const char *dbgname = NULL;
     const char *exe = NULL;
     const char *lib = NULL;
     int port = -1;
 
-    switch ( ph.id )
+    switch ( dpm->ph.id )
     {
       case PLFM_ARM:
         dbgname = "ios";
@@ -755,14 +739,16 @@ static int idaapi init(void)
         break;
 
       default:
-        dtxmsg_deb("Error: unsupported architecture: %d\n", ph.id);
-        return PLUGIN_SKIP;
+        dtxmsg_deb("Error: unsupported architecture: %d\n", dpm->ph.id);
+        delete dpm;
+        return nullptr;
     }
 
     if ( !load_debugger(dbgname, true) )
     {
       dtxmsg_deb("Error: failed to load %s debugger module\n", dbgname);
-      return PLUGIN_SKIP;
+      delete dpm;
+      return nullptr;
     }
 
     set_process_options(exe, NULL, NULL, "localhost", NULL, port);
@@ -771,7 +757,7 @@ static int idaapi init(void)
   else
   {
     // already configured the debugging environment
-    print_node_info("saved");
+    dpm->print_node_info("saved");
   }
 
   // parse command line options
@@ -787,13 +773,13 @@ static int idaapi init(void)
       if ( _pid != 0 )
       {
         // process ID
-        pid = _pid;
+        dpm->pid = _pid;
         continue;
       }
       else if ( qisabspath(tok) )
       {
         // logging directory
-        qstrncpy(logdir, tok, sizeof(logdir));
+        qstrncpy(dpm->logdir, tok, sizeof(dpm->logdir));
         continue;
       }
       else if ( qstrlen(tok) == 1 )
@@ -803,7 +789,7 @@ static int idaapi init(void)
         {
           case 'v':
           case 'V':
-            verbose = true;
+            dpm->verbose = true;
             continue;
           default:
             break;
@@ -813,50 +799,53 @@ static int idaapi init(void)
     }
   }
 
-  if ( qstrlen(logdir) == 0 )
-    qtmpnam(logdir, sizeof(logdir));
+  if ( qstrlen(dpm->logdir) == 0 )
+    qtmpnam(dpm->logdir, sizeof(dpm->logdir));
 
-  if ( qmkdir(logdir, 0755) != 0 && errno != EEXIST )
+  if ( qmkdir(dpm->logdir, 0755) != 0 && errno != EEXIST )
   {
-    dtxmsg_deb("Error: failed to mkdir %s: %s\n", logdir, winerr(errno));
-    return PLUGIN_SKIP;
+    dtxmsg_deb("Error: failed to mkdir %s: %s\n", dpm->logdir, winerr(errno));
+    delete dpm;
+    return nullptr;
   }
 
   char path[QMAXPATH];
-  qmakepath(path, sizeof(path), logdir, "headers.log", NULL);
+  qmakepath(path, sizeof(path), dpm->logdir, "headers.log", NULL);
 
-  headers_fp = qfopen(path, "w");
-  if ( headers_fp == NULL )
+  dpm->headers_fp = qfopen(path, "w");
+  if ( dpm->headers_fp == NULL )
   {
     dtxmsg_deb("Error: failed to open %s: %s\n", path, winerr(errno));
-    return PLUGIN_SKIP;
+    delete dpm;
+    return nullptr;
   }
 
   dtxmsg_deb("logging header info to: %s\n", path);
 
-  hook_to_notification_point(HT_UI,  ui_callback);
-  hook_to_notification_point(HT_IDB, idb_callback);
-  hook_to_notification_point(HT_DBG, dbg_callback);
+  hook_event_listener(HT_IDB, &dpm->idb_listener, dpm);
+  hook_event_listener(HT_DBG, &dpm->dbg_listener, dpm);
+  hook_event_listener(HT_UI,  &dpm->ui_listener,  dpm);
 
-  return PLUGIN_KEEP;
+  return dpm;
 }
 
 //-----------------------------------------------------------------------------
-static void idaapi term(void)
+dtxmsg_plugmod_t::dtxmsg_plugmod_t(void) : ph(PH)
+{
+  dtxmsg_node.create(DTXMSG_NODE);
+}
+
+//-----------------------------------------------------------------------------
+dtxmsg_plugmod_t::~dtxmsg_plugmod_t(void)
 {
   if ( headers_fp != NULL )
     qfclose(headers_fp);
 
-  if ( hexdsp != NULL )
-    term_hexrays_plugin();
-
-  unhook_from_notification_point(HT_UI,  ui_callback);
-  unhook_from_notification_point(HT_IDB, idb_callback);
-  unhook_from_notification_point(HT_DBG, dbg_callback);
+  term_hexrays_plugin();
 }
 
 //-----------------------------------------------------------------------------
-static bool idaapi run(size_t)
+bool idaapi dtxmsg_plugmod_t::run(size_t)
 {
   if ( dtxmsg_node.altfirst(DTXMSG_ALT_BPTS) == BADNODE )
   {
@@ -898,12 +887,12 @@ static bool idaapi run(size_t)
 plugin_t PLUGIN =
 {
   IDP_INTERFACE_VERSION,
-  PLUGIN_HIDE,           // plugin flags
-  init,                  // initialize
-  term,                  // terminate. this pointer may be NULL.
-  run,                   // invoke plugin
-  NULL,                  // long comment about the plugin
-  NULL,                  // multiline help about the plugin
-  "",                    // the preferred short name of the plugin
-  NULL                   // the preferred hotkey to run the plugin
+  PLUGIN_HIDE|PLUGIN_MULTI, // plugin flags
+  init,                     // initialize
+  NULL,                     // terminate. this pointer may be NULL.
+  NULL,                     // invoke plugin
+  NULL,                     // long comment about the plugin
+  NULL,                     // multiline help about the plugin
+  "",                       // the preferred short name of the plugin
+  NULL                      // the preferred hotkey to run the plugin
 };
